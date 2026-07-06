@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getActiveListings } from '@/lib/ebayTrading';
+import { getActiveListings, getSellingSnapshot } from '@/lib/ebayTrading';
 
 function xmlResponse(body: string) {
   return { ok: true, text: async () => body };
@@ -89,5 +89,89 @@ describe('getActiveListings', () => {
     await expect(getActiveListings('access-token')).rejects.toThrow(
       'GetMyeBaySelling ha restituito un errore: Token scaduto'
     );
+  });
+});
+
+describe('getSellingSnapshot', () => {
+  it('estrae watcher, prezzo e vendite dalla risposta XML', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GetMyeBaySellingResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Success</Ack>
+  <ActiveList>
+    <ItemArray>
+      <Item>
+        <ItemID>123456789012</ItemID>
+        <Title>Prodotto Uno</Title>
+        <PrimaryCategory><CategoryID>111</CategoryID></PrimaryCategory>
+        <WatchCount>7</WatchCount>
+        <StartPrice>19.99</StartPrice>
+      </Item>
+    </ItemArray>
+  </ActiveList>
+  <SoldList>
+    <OrderTransactionArray>
+      <OrderTransaction>
+        <Transaction>
+          <Item><ItemID>123456789012</ItemID></Item>
+          <QuantityPurchased>2</QuantityPurchased>
+          <TransactionPrice>19.99</TransactionPrice>
+        </Transaction>
+      </OrderTransaction>
+    </OrderTransactionArray>
+  </SoldList>
+</GetMyeBaySellingResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    const snapshot = await getSellingSnapshot('access-token');
+
+    expect(snapshot.listings).toEqual([
+      { itemId: '123456789012', title: 'Prodotto Uno', categoryId: '111', watchCount: 7, price: 19.99 },
+    ]);
+    expect(snapshot.soldItems).toEqual([{ itemId: '123456789012', quantitySold: 2, revenue: 39.98 }]);
+  });
+
+  it('somma più transazioni per lo stesso itemId', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GetMyeBaySellingResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Success</Ack>
+  <ActiveList><ItemArray></ItemArray></ActiveList>
+  <SoldList>
+    <OrderTransactionArray>
+      <OrderTransaction>
+        <Transaction>
+          <Item><ItemID>111</ItemID></Item>
+          <QuantityPurchased>1</QuantityPurchased>
+          <TransactionPrice>10</TransactionPrice>
+        </Transaction>
+      </OrderTransaction>
+      <OrderTransaction>
+        <Transaction>
+          <Item><ItemID>111</ItemID></Item>
+          <QuantityPurchased>1</QuantityPurchased>
+          <TransactionPrice>10</TransactionPrice>
+        </Transaction>
+      </OrderTransaction>
+    </OrderTransactionArray>
+  </SoldList>
+</GetMyeBaySellingResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    const snapshot = await getSellingSnapshot('access-token');
+
+    expect(snapshot.soldItems).toEqual([{ itemId: '111', quantitySold: 2, revenue: 20 }]);
+  });
+
+  it('ritorna array vuoti se non ci sono inserzioni né vendite', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GetMyeBaySellingResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Success</Ack>
+  <ActiveList></ActiveList>
+  <SoldList></SoldList>
+</GetMyeBaySellingResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    const snapshot = await getSellingSnapshot('access-token');
+
+    expect(snapshot).toEqual({ listings: [], soldItems: [] });
   });
 });
