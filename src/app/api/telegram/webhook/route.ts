@@ -20,18 +20,18 @@ export async function POST(req: NextRequest) {
 
   const callbackQuery = update.callback_query;
   if (callbackQuery?.data && callbackQuery.from?.id) {
-    await answerCallbackQuery(callbackQuery.id);
-    if (isAuthorized(callbackQuery.from.id)) {
-      try {
+    try {
+      await answerCallbackQuery(callbackQuery.id);
+      if (isAuthorized(callbackQuery.from.id)) {
         const supabase = getSupabaseClient();
         const result = await handleProposalCallback(supabase, callbackQuery.data);
         if (result) {
           const targetChatId = result.chatId || callbackQuery.from.id;
           await sendMessage(targetChatId, result.text);
         }
-      } catch (err) {
-        console.error('Telegram webhook: errore nella gestione del callback', err);
       }
+    } catch (err) {
+      console.error('Telegram webhook: errore nella gestione del callback', err);
     }
     return NextResponse.json({ ok: true });
   }

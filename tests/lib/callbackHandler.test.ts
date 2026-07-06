@@ -79,6 +79,29 @@ describe('handleProposalCallback', () => {
     });
   });
 
+  it('segnala se la modifica è stata applicata su eBay ma la registrazione interna fallisce', async () => {
+    vi.mocked(refreshAccessToken).mockResolvedValue({
+      accessToken: 'access-1',
+      refreshToken: 'rt-1',
+      accessTokenExpiresAt: '2026-01-01T00:00:00.000Z',
+    });
+    vi.mocked(applyProposal).mockResolvedValue(undefined);
+    const supabase = fakeSupabase([
+      { data: { id: 1, listing_id: 10, field: 'price', proposed_value: '18.00', current_value: '20.00', status: 'pending' }, error: null },
+      { data: { id: 10, ebay_item_id: 'AAA', chat_id: 210039451, title: 'Prodotto A' }, error: null },
+      { data: { refresh_token: 'rt-1' }, error: null },
+      { data: null, error: { message: 'update fallito' } },
+      { data: null, error: null },
+    ]);
+
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+
+    expect(applyProposal).toHaveBeenCalledWith('access-1', 'AAA', 'price', '18.00');
+    expect(result?.chatId).toBe(210039451);
+    expect(result?.text).toContain('Modifica applicata su eBay');
+    expect(result?.text).toContain('Non approvare di nuovo');
+  });
+
   it('segnala un fallimento se applyProposal lancia un errore', async () => {
     vi.mocked(refreshAccessToken).mockResolvedValue({
       accessToken: 'access-1',

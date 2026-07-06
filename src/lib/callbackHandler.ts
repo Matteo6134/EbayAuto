@@ -59,14 +59,27 @@ export async function handleProposalCallback(
   try {
     const tokens = await refreshAccessToken(connection.refresh_token);
     await applyProposal(tokens.accessToken, listing.ebay_item_id, proposal.field, proposal.proposed_value);
-    await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
-    await supabase.from('change_log').insert({
+
+    const { error: statusError } = await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
+    const { error: logError } = await supabase.from('change_log').insert({
       listing_id: proposal.listing_id,
       proposal_id: proposalId,
       field: proposal.field,
       previous_value: proposal.current_value,
       new_value: proposal.proposed_value,
     });
+
+    if (statusError || logError) {
+      console.error(
+        'handleProposalCallback: modifica applicata su eBay ma registrazione interna fallita',
+        statusError ?? logError
+      );
+      return {
+        chatId: listing.chat_id,
+        text: `⚠️ Modifica applicata su eBay (${proposal.field} aggiornato a ${proposal.proposed_value}) ma la registrazione interna è fallita. Non approvare di nuovo questa proposta.`,
+      };
+    }
+
     return {
       chatId: listing.chat_id,
       text: `✅ Applicato: ${listing.title} — ${proposal.field} aggiornato a ${proposal.proposed_value}`,

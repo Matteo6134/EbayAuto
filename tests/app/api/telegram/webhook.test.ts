@@ -129,6 +129,19 @@ describe('POST /api/telegram/webhook', () => {
     expect(res.status).toBe(200);
   });
 
+  it('non fallisce se answerCallbackQuery lancia un errore', async () => {
+    vi.mocked(answerCallbackQuery).mockRejectedValue(new Error('telegram giù'));
+    const req = makeRequest(
+      { callback_query: { id: 'cbq-1', data: 'proposal:1:approve', from: { id: 100 } } },
+      'super-secret'
+    );
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(handleProposalCallback).not.toHaveBeenCalled();
+  });
+
   it('usa il chat_id di chi ha premuto il bottone se handleProposalCallback non ne conosce uno reale (es. proposta non trovata)', async () => {
     vi.mocked(handleProposalCallback).mockResolvedValue({ chatId: 0, text: 'Proposta non trovata.' });
     const req = makeRequest(
