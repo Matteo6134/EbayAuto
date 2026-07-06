@@ -39,4 +39,16 @@ describe('telegram client', () => {
     expect(verifyWebhookSecret('sbagliato')).toBe(false);
     expect(verifyWebhookSecret(null)).toBe(false);
   });
+
+  it('lancia un errore se TELEGRAM_BOT_TOKEN non è impostato', async () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    vi.stubGlobal('fetch', vi.fn());
+    const { sendMessage } = await import('@/lib/telegram');
+    await expect(sendMessage(42, 'ciao')).rejects.toThrow('TELEGRAM_BOT_TOKEN mancante');
+  });
+
+  it('rifiuta un secret della stessa lunghezza ma con contenuto diverso', async () => {
+    const { verifyWebhookSecret } = await import('@/lib/telegram');
+    expect(verifyWebhookSecret('super-secre1')).toBe(false);
+  });
 });

@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'crypto';
+
 export interface TelegramChat {
   id: number;
 }
@@ -42,5 +44,13 @@ export async function sendMessage(chatId: number, text: string): Promise<void> {
 
 export function verifyWebhookSecret(headerValue: string | null): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return Boolean(expected) && headerValue === expected;
+  if (!expected || !headerValue) {
+    return false;
+  }
+  const expectedBuffer = Buffer.from(expected);
+  const headerBuffer = Buffer.from(headerValue);
+  if (expectedBuffer.length !== headerBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(expectedBuffer, headerBuffer);
 }
