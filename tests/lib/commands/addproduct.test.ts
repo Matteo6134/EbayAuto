@@ -58,4 +58,33 @@ describe('handleAddProduct', () => {
     expect(result.text).toContain('Aggiunto ai prodotti monitorati (id 3)');
     expect(result.text).toContain('Prodotto X');
   });
+
+  it('scopa il controllo di duplicato anche per chat_id, non solo per item eBay', async () => {
+    vi.mocked(fetchListingSummary).mockResolvedValue({
+      itemId: '123456789012',
+      title: 'Prodotto X',
+      categoryId: '1',
+      categoryName: 'Elettronica',
+      price: 10,
+      currency: 'EUR',
+    });
+
+    const eqCalls: Array<[string, unknown]> = [];
+    const builder: any = {
+      from: () => builder,
+      select: () => builder,
+      eq: (col: string, val: unknown) => {
+        eqCalls.push([col, val]);
+        return builder;
+      },
+      insert: () => builder,
+      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+      single: () => Promise.resolve({ data: { id: 5 }, error: null }),
+    };
+
+    await handleAddProduct({ supabase: builder, chatId: 42, args: '123456789012' });
+
+    expect(eqCalls).toContainEqual(['chat_id', 42]);
+    expect(eqCalls).toContainEqual(['ebay_item_id', '123456789012']);
+  });
 });

@@ -28,6 +28,7 @@ describe('getAppAccessToken / fetchListingSummary', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('ottiene un token e lo usa per recuperare l\'inserzione', async () => {

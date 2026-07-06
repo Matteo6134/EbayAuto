@@ -12,14 +12,23 @@ async function main() {
     process.exit(1);
   }
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: `${url}/api/telegram/webhook`, secret_token: secret }),
-  });
-  const data = await res.json();
-  console.log(JSON.stringify(data, null, 2));
-  if (!data.ok) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${url}/api/telegram/webhook`, secret_token: secret }),
+    });
+    if (!res.ok) {
+      console.error(`Richiesta a Telegram fallita (status ${res.status})`);
+      process.exit(1);
+    }
+    const data = await res.json();
+    console.log(JSON.stringify(data, null, 2));
+    if (!data.ok) {
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Errore di rete durante la chiamata a Telegram:', (err as Error).message);
     process.exit(1);
   }
 }

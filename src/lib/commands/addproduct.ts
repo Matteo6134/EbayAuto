@@ -18,6 +18,7 @@ export const handleAddProduct: CommandHandler = async ({ supabase, chatId, args 
     .from('watched_listings')
     .select('id')
     .eq('ebay_item_id', itemId)
+    .eq('chat_id', chatId)
     .maybeSingle();
 
   if (existing) {
