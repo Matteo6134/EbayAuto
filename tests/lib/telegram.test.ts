@@ -51,4 +51,63 @@ describe('telegram client', () => {
     const { verifyWebhookSecret } = await import('@/lib/telegram');
     expect(verifyWebhookSecret('super-secre1')).toBe(false);
   });
+
+  it('include reply_markup quando fornito a sendMessage', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { sendMessage } = await import('@/lib/telegram');
+    await sendMessage(42, 'scegli', {
+      inline_keyboard: [[{ text: 'Approva', callback_data: 'proposal:1:approve' }]],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/botbot-token/sendMessage',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          chat_id: 42,
+          text: 'scegli',
+          reply_markup: { inline_keyboard: [[{ text: 'Approva', callback_data: 'proposal:1:approve' }]] },
+        }),
+      })
+    );
+  });
+
+  it('non include reply_markup se non fornito', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { sendMessage } = await import('@/lib/telegram');
+    await sendMessage(42, 'ciao');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/botbot-token/sendMessage',
+      expect.objectContaining({ body: JSON.stringify({ chat_id: 42, text: 'ciao' }) })
+    );
+  });
+
+  it('answerCallbackQuery chiama l\'API corretta', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { answerCallbackQuery } = await import('@/lib/telegram');
+    await answerCallbackQuery('cbq-1', 'fatto');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/botbot-token/answerCallbackQuery',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ callback_query_id: 'cbq-1', text: 'fatto' }),
+      })
+    );
+  });
+
+  it('answerCallbackQuery lancia un errore se Telegram risponde con errore', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }));
+    const { answerCallbackQuery } = await import('@/lib/telegram');
+    await expect(answerCallbackQuery('cbq-1')).rejects.toThrow(
+      'Telegram answerCallbackQuery fallita (status 400)'
+    );
+  });
 });

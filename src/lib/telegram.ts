@@ -23,6 +23,15 @@ export interface TelegramUpdate {
   callback_query?: TelegramCallbackQuery;
 }
 
+export interface InlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+export interface InlineKeyboardMarkup {
+  inline_keyboard: InlineKeyboardButton[][];
+}
+
 function apiUrl(method: string): string {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -31,14 +40,29 @@ function apiUrl(method: string): string {
   return `https://api.telegram.org/bot${token}/${method}`;
 }
 
-export async function sendMessage(chatId: number, text: string): Promise<void> {
+export async function sendMessage(chatId: number, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<void> {
+  const body: Record<string, unknown> = { chat_id: chatId, text };
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
   const res = await fetch(apiUrl('sendMessage'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(`Telegram sendMessage fallita (status ${res.status})`);
+  }
+}
+
+export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+  const res = await fetch(apiUrl('answerCallbackQuery'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+  });
+  if (!res.ok) {
+    throw new Error(`Telegram answerCallbackQuery fallita (status ${res.status})`);
   }
 }
 
