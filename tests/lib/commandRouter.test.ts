@@ -43,11 +43,18 @@ describe('commandRouter', () => {
     expect(result.text).toContain('/listproducts');
     expect(result.text).toContain('/connectebay');
     expect(result.text).toContain('/scanproducts');
+    expect(result.text).toContain('/recap');
   });
 
   it('dispatcha /scanproducts al comando corretto', async () => {
     const supabase = createFakeSupabase([{ data: null, error: null }]);
     const result = await routeCommand(supabase, 100, '/scanproducts');
     expect(result.text).toContain('Nessun account eBay collegato');
+  });
+
+  it('dispatcha /recap al comando corretto', async () => {
+    const supabase = createFakeSupabase([{ data: null, error: null }]);
+    const result = await routeCommand(supabase, 100, '/recap 5');
+    expect(result.text).toContain('Nessun prodotto trovato con id 5');
   });
 });
