@@ -3,12 +3,16 @@ import type { CommandContext, CommandResult } from './commands/types';
 import { handleAddProduct } from './commands/addproduct';
 import { handleListProducts } from './commands/listproducts';
 import { handlePause, handleResume } from './commands/pauseresume';
+import { handleConnectEbay } from './commands/connectebay';
+import { handleScanProducts } from './commands/scanproducts';
 
 const HELP_TEXT = `Comandi disponibili:
 /addproduct <link o ID eBay> - inizia a monitorare un prodotto
 /listproducts - elenco prodotti monitorati
 /pause <id> - metti in pausa un prodotto
 /resume <id> - riprendi il monitoraggio
+/connectebay - collega il tuo account eBay
+/scanproducts - aggiunge automaticamente le inserzioni attive del tuo account eBay collegato
 /help - questo messaggio`;
 
 const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> = {
@@ -17,6 +21,8 @@ const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> 
   '/listproducts': handleListProducts,
   '/pause': handlePause,
   '/resume': handleResume,
+  '/connectebay': handleConnectEbay,
+  '/scanproducts': handleScanProducts,
   '/help': async () => ({ text: HELP_TEXT }),
 };
 
