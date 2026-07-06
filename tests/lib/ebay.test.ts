@@ -75,4 +75,56 @@ describe('getAppAccessToken / fetchListingSummary', () => {
       "eBay non ha trovato l'inserzione 000000000000 (status 404)"
     );
   });
+
+  it('non richiede un nuovo token se quello in cache non è scaduto (chiamate consecutive)', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ access_token: 'token-123', expires_in: 7200 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          title: 'Prodotto di test',
+          categoryId: '12345',
+          categoryPath: 'Elettronica|Test',
+          price: { value: '19.99', currency: 'EUR' },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          title: 'Prodotto due',
+          categoryId: '99',
+          categoryPath: 'Casa',
+          price: { value: '5.00', currency: 'EUR' },
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchListingSummary } = await import('@/lib/ebay');
+    await fetchListingSummary('123456789012');
+    await fetchListingSummary('999999999999');
+
+    // 1 chiamata per il token + 2 per le inserzioni = 3, non 4: conferma che il token è stato riutilizzato dalla cache
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('richiede un nuovo token se quello in cache è scaduto', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'token-1', expires_in: 120 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ title: 'A', categoryId: '1', categoryPath: 'X', price: { value: '1', currency: 'EUR' } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'token-2', expires_in: 120 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ title: 'B', categoryId: '2', categoryPath: 'Y', price: { value: '2', currency: 'EUR' } }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchListingSummary } = await import('@/lib/ebay');
+    await fetchListingSummary('111111111111');
+    vi.advanceTimersByTime(61 * 1000);
+    await fetchListingSummary('222222222222');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+  });
 });
