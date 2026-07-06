@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
-import { routeCommand } from '@/lib/commandRouter';
-import { sendMessage, verifyWebhookSecret, TelegramUpdate } from '@/lib/telegram';
+import { routeCommand, isAuthorized } from '@/lib/commandRouter';
+import { sendMessage, answerCallbackQuery, verifyWebhookSecret, TelegramUpdate } from '@/lib/telegram';
+import { handleProposalCallback } from '@/lib/callbackHandler';
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-telegram-bot-api-secret-token');
@@ -15,6 +16,24 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Telegram webhook: corpo della richiesta non valido', err);
     return NextResponse.json({ ok: false }, { status: 400 });
+  }
+
+  const callbackQuery = update.callback_query;
+  if (callbackQuery?.data && callbackQuery.from?.id) {
+    await answerCallbackQuery(callbackQuery.id);
+    if (isAuthorized(callbackQuery.from.id)) {
+      try {
+        const supabase = getSupabaseClient();
+        const result = await handleProposalCallback(supabase, callbackQuery.data);
+        if (result) {
+          const targetChatId = result.chatId || callbackQuery.from.id;
+          await sendMessage(targetChatId, result.text);
+        }
+      } catch (err) {
+        console.error('Telegram webhook: errore nella gestione del callback', err);
+      }
+    }
+    return NextResponse.json({ ok: true });
   }
 
   const message = update.message;
