@@ -68,4 +68,28 @@ describe('collectDailyMetrics', () => {
 
     expect(result).toEqual({ collected: 0, errors: ['Rinnovo token eBay fallito: refresh non valido'] });
   });
+
+  it('segnala un errore se il salvataggio delle metriche fallisce, senza contarlo come raccolto', async () => {
+    vi.mocked(refreshAccessToken).mockResolvedValue({
+      accessToken: 'access-1',
+      refreshToken: 'rt-1',
+      accessTokenExpiresAt: '2026-01-01T00:00:00.000Z',
+    });
+    vi.mocked(getSellingSnapshot).mockResolvedValue({
+      listings: [{ itemId: 'AAA', title: 'Prodotto A', categoryId: '1', watchCount: 5, price: 10 }],
+      soldItems: [],
+    });
+    const supabase = createFakeSupabase([
+      { data: { refresh_token: 'rt-1' }, error: null }, // ebay_connection
+      { data: [{ id: 1, ebay_item_id: 'AAA', title: 'Prodotto A' }], error: null }, // watched_listings attivi
+      { data: null, error: { message: 'constraint violata' } }, // upsert daily_metrics fallito
+    ]);
+
+    const result = await collectDailyMetrics(supabase, 210039451);
+
+    expect(result).toEqual({
+      collected: 0,
+      errors: ['Prodotto Prodotto A: salvataggio metriche fallito (constraint violata)'],
+    });
+  });
 });

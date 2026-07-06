@@ -48,7 +48,7 @@ export async function collectDailyMetrics(supabase: SupabaseClient, chatId: numb
     }
     const sold = soldById.get(listing.ebay_item_id);
 
-    await supabase.from('daily_metrics').upsert(
+    const { error: upsertError } = await supabase.from('daily_metrics').upsert(
       {
         listing_id: listing.id,
         metric_date: today,
@@ -59,6 +59,10 @@ export async function collectDailyMetrics(supabase: SupabaseClient, chatId: numb
       },
       { onConflict: 'listing_id,metric_date' }
     );
+    if (upsertError) {
+      errors.push(`Prodotto ${listing.title}: salvataggio metriche fallito (${upsertError.message})`);
+      continue;
+    }
     collected += 1;
   }
 
