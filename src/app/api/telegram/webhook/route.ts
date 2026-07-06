@@ -9,15 +9,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  const update = (await req.json()) as TelegramUpdate;
+  let update: TelegramUpdate;
+  try {
+    update = (await req.json()) as TelegramUpdate;
+  } catch (err) {
+    console.error('Telegram webhook: corpo della richiesta non valido', err);
+    return NextResponse.json({ ok: false }, { status: 400 });
+  }
+
   const message = update.message;
   if (!message?.text || !message.chat?.id) {
     return NextResponse.json({ ok: true });
   }
 
-  const supabase = getSupabaseClient();
-  const result = await routeCommand(supabase, message.chat.id, message.text);
-  await sendMessage(message.chat.id, result.text);
+  try {
+    const supabase = getSupabaseClient();
+    const result = await routeCommand(supabase, message.chat.id, message.text);
+    await sendMessage(message.chat.id, result.text);
+  } catch (err) {
+    console.error('Telegram webhook: errore durante la gestione del comando', err);
+  }
 
   return NextResponse.json({ ok: true });
 }
