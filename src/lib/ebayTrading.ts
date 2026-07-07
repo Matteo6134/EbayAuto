@@ -27,6 +27,7 @@ export interface EbaySellingSnapshot {
 
 const REQUEST_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
   <ActiveList>
     <Sort>TimeLeft</Sort>
     <Pagination>
