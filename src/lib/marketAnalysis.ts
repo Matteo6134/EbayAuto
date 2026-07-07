@@ -63,6 +63,7 @@ export async function getMarketInsights(accessToken: string, title: string, cate
       const mainCat = cats[0].categoryId;
       categoryCounts[mainCat] = (categoryCounts[mainCat] || 0) + 1;
     }
+  }
 
   // Calcolo Prezzo Medio
   const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
