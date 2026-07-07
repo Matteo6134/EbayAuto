@@ -6,12 +6,14 @@ import { handlePause, handleResume } from './commands/pauseresume';
 import { handleConnectEbay } from './commands/connectebay';
 import { handleScanProducts } from './commands/scanproducts';
 import { handleRecap } from './commands/recap';
+import { handleRemove } from './commands/removeproduct';
 
 const HELP_TEXT = `Comandi disponibili:
 /addproduct <link o ID eBay> - inizia a monitorare un prodotto
 /listproducts - elenco prodotti monitorati
 /pause <id> - metti in pausa un prodotto
 /resume <id> - riprendi il monitoraggio
+/remove <id> - elimina un prodotto dal monitoraggio
 /connectebay - collega il tuo account eBay
 /scanproducts - aggiunge automaticamente le inserzioni attive del tuo account eBay collegato
 /recap <id> - riepilogo di un prodotto monitorato
@@ -23,6 +25,7 @@ const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> 
   '/listproducts': handleListProducts,
   '/pause': handlePause,
   '/resume': handleResume,
+  '/remove': handleRemove,
   '/connectebay': handleConnectEbay,
   '/scanproducts': handleScanProducts,
   '/recap': handleRecap,
