@@ -27,6 +27,32 @@ export async function generateAndSendProposals(
   let sent = 0;
 
   for (const draft of drafts) {
+    if (!draft.actionable) {
+      const fieldLabel = FIELD_LABELS[draft.field] ?? draft.field;
+      informational.push(`${snapshot.title} (${fieldLabel}): ${draft.rationale}`);
+      continue;
+    }
+
+    // Controlla se esiste già una proposta pending per questo prodotto e questo campo
+    const { data: existingPending } = await supabase
+      .from('proposals')
+      .select('id, proposed_value')
+      .eq('listing_id', listingId)
+      .eq('field', draft.field)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (existingPending) {
+      if (existingPending.proposed_value === draft.proposedValue) {
+        // Stesso valore proposto già pendente: saltiamo l'inserimento ed il messaggio Telegram per evitare spam
+        sent += 1;
+        continue;
+      } else {
+        // Valore diverso: eliminiamo la vecchia proposta pendente obsoleta
+        await supabase.from('proposals').delete().eq('id', existingPending.id);
+      }
+    }
+
     const { data: inserted, error } = await supabase
       .from('proposals')
       .insert({
@@ -37,19 +63,13 @@ export async function generateAndSendProposals(
         proposed_value: draft.proposedValue,
         rationale: draft.rationale,
         impact: draft.impact,
-        status: draft.actionable ? 'pending' : 'informational',
+        status: 'pending',
       })
       .select('id')
       .single();
 
     if (error) {
       throw new Error(`Salvataggio proposta fallito (${draft.field}): ${error.message}`);
-    }
-
-    if (!draft.actionable) {
-      const fieldLabel = FIELD_LABELS[draft.field] ?? draft.field;
-      informational.push(`${snapshot.title} (${fieldLabel}): ${draft.rationale}`);
-      continue;
     }
 
     const impactPrefix = draft.impact === 'high' ? '⚠️ Alto impatto\n' : '';
