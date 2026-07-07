@@ -89,7 +89,6 @@ const SNAPSHOT_REQUEST_BODY = `<?xml version="1.0" encoding="utf-8"?>
     <IncludeWatchCount>true</IncludeWatchCount>
   </ActiveList>
   <SoldList>
-    <Sort>TimeLeft</Sort>
     <DurationInDays>1</DurationInDays>
     <Pagination>
       <EntriesPerPage>200</EntriesPerPage>
