@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const { data: listings } = await supabase
     .from('watched_listings')
-    .select('id, title, category_id')
+    .select('id, ebay_item_id, title, category_id')
     .eq('chat_id', chatId)
     .eq('status', 'active');
 
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   for (const listing of listings ?? []) {
     const { data: history } = await supabase
       .from('daily_metrics')
-      .select('metric_date, watch_count, quantity_sold, revenue, price, ad_rate_percent')
+      .select('metric_date, watch_count, quantity_sold, revenue, price, ad_rate_percent, impression_count, click_count, click_through_rate')
       .eq('listing_id', listing.id)
       .order('metric_date', { ascending: true });
 
@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
 
     const snapshot = {
       listingId: listing.id,
+      ebayItemId: listing.ebay_item_id,
       title: listing.title,
       categoryId: listing.category_id ? String(listing.category_id) : null,
       today: {
@@ -51,6 +52,9 @@ export async function GET(req: NextRequest) {
         revenue: today.revenue,
         price: today.price,
         adRatePercent: today.ad_rate_percent,
+        impressionCount: today.impression_count ?? null,
+        clickCount: today.click_count ?? null,
+        clickThroughRate: today.click_through_rate ?? null,
       },
       history: pastRows.map((r: any) => ({
         metricDate: r.metric_date,
@@ -59,6 +63,9 @@ export async function GET(req: NextRequest) {
         revenue: r.revenue,
         price: r.price,
         adRatePercent: r.ad_rate_percent,
+        impressionCount: r.impression_count ?? null,
+        clickCount: r.click_count ?? null,
+        clickThroughRate: r.click_through_rate ?? null,
       })),
     };
 

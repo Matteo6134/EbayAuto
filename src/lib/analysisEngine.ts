@@ -7,10 +7,15 @@ export interface MetricPoint {
   revenue: number;
   price: number;
   adRatePercent: number | null;
+  // From Analytics API
+  impressionCount: number | null;
+  clickCount: number | null;
+  clickThroughRate: number | null; // 0-100%
 }
 
 export interface ListingSnapshot {
   listingId: number;
+  ebayItemId: string;
   title: string;
   categoryId: string | null;
   today: MetricPoint;
@@ -18,9 +23,9 @@ export interface ListingSnapshot {
 }
 
 export interface ProposalDraft {
-  field: 'title' | 'price' | 'category' | 'ad_rate';
+  field: 'title' | 'price' | 'category' | 'ad_rate' | 'offer';
   currentValue: string;
-  proposedValue: string;
+  proposedValue: string; // for 'offer': JSON with {discount, ebayItemId, currentPrice}
   rationale: string;
   impact: 'normal' | 'high';
   actionable: boolean;
@@ -133,10 +138,65 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
     }
   }
 
+  // --- CTR Analysis (Analytics API data) ---
+  const ctr = snapshot.today.clickThroughRate;
+  const impressions = snapshot.today.impressionCount ?? 0;
+
+  if (impressions >= 100 && ctr !== null) {
+    if (ctr < 0.5) {
+      // Very low CTR: the listing is being shown but nobody clicks → title/photo problem
+      const ctrLabel = ctr.toFixed(2);
+      if (insights.suggestedTitle && insights.suggestedTitle !== snapshot.title) {
+        proposals.push({
+          field: 'title',
+          currentValue: snapshot.title,
+          proposedValue: insights.suggestedTitle,
+          rationale: `CTR critico: solo ${ctrLabel}% su ${impressions.toLocaleString()} impressioni. eBay ti mostra ma nessuno clicca → il titolo è il problema. Titolo SEO generato dai top seller applicato automaticamente!`,
+          impact: 'high',
+          actionable: true,
+        });
+      } else {
+        proposals.push({
+          field: 'title',
+          currentValue: snapshot.title,
+          proposedValue: 'Aggiungi dettagli specifici: modello, colore, materiale, dimensioni',
+          rationale: `CTR basso: ${ctrLabel}% su ${impressions.toLocaleString()} impressioni. Gli acquirenti ti vedono ma non cliccano. Aggiungi caratteristiche specifiche al titolo.`,
+          impact: 'high',
+          actionable: false,
+        });
+      }
+    } else if (ctr >= 2.0 && recentSales === 0 && snapshot.today.watchCount >= 3) {
+      // High CTR, people visit but don't buy → price might be the issue
+      // Also eligible for watcher offer
+    }
+  }
+
+  // --- Watcher Offer via Negotiation API ---
+  // If item has watchers but no sales for multiple days, send a private discount offer
+  if (
+    hasEnoughHistory &&
+    snapshot.today.watchCount >= 3 &&
+    recentSales === 0 &&
+    !proposals.some((p) => p.field === 'offer')
+  ) {
+    proposals.push({
+      field: 'offer',
+      currentValue: `${snapshot.today.watchCount} osservatori, 0 vendite`,
+      proposedValue: JSON.stringify({
+        discount: 5,
+        ebayItemId: snapshot.ebayItemId,
+        currentPrice: snapshot.today.price,
+      }),
+      rationale: `🎯 Hai ${snapshot.today.watchCount} persone che osservano senza comprare da ${snapshot.history.length}+ giorni. Invia loro un'offerta privata sconto 5% valida 48h — chiudi la vendita adesso!`,
+      impact: 'high',
+      actionable: true,
+    });
+  }
+
+  // --- Classica logica prezzo con storico ---
   if (hasEnoughHistory && snapshot.today.watchCount >= 3 && recentSales === 0) {
     const discountedPrice = Math.round(snapshot.today.price * 0.9 * 100) / 100;
-    // Evitiamo di sovrascrivere o proporre due sconti di prezzo se il mercato ha già fatto la sua proposta
-    if (!proposals.some(p => p.field === 'price')) {
+    if (!proposals.some((p) => p.field === 'price') && !proposals.some((p) => p.field === 'offer')) {
       proposals.push({
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),

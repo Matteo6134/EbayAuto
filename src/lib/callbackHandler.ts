@@ -124,6 +124,52 @@ async function handleProposalCallback(
 
   try {
     const tokens = await refreshAccessToken(connection.refresh_token);
+
+    // Special handling for 'offer' type - uses Negotiation API, not ReviseItem
+    if (proposal.field === 'offer') {
+      const { sendOfferToWatchers } = await import('./ebayNegotiation');
+      let offerData: { discount: number; ebayItemId: string; currentPrice: number };
+      try {
+        offerData = JSON.parse(proposal.proposed_value);
+      } catch {
+        return { chatId: listing.chat_id, text: '⚠️ Dati offerta non validi.' };
+      }
+
+      const result = await sendOfferToWatchers(
+        tokens.accessToken,
+        offerData.ebayItemId,
+        offerData.currentPrice,
+        offerData.discount
+      );
+
+      if (!result.success) {
+        await supabase.from('proposals').update({ status: 'failed' }).eq('id', proposalId);
+        return {
+          chatId: listing.chat_id,
+          text: `⚠️ Invio offerta fallito: ${result.error}`,
+        };
+      }
+
+      // Save the offer in sent_offers for tracking
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 48);
+      await supabase.from('sent_offers').insert({
+        listing_id: proposal.listing_id,
+        ebay_item_id: offerData.ebayItemId,
+        offer_date: new Date().toISOString().slice(0, 10),
+        discount_percentage: offerData.discount,
+        expires_at: expiresAt.toISOString(),
+        status: 'sent',
+      });
+
+      await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
+      const discountedPrice = Math.round(offerData.currentPrice * (1 - offerData.discount / 100) * 100) / 100;
+      return {
+        chatId: listing.chat_id,
+        text: `🎯 Offerta inviata! ${listing.title} — ${offerData.discount}% sconto (${discountedPrice.toFixed(2)}€) agli osservatori. Valida 48 ore. Ti avviso se qualcuno accetta!`,
+      };
+    }
+
     await applyProposal(tokens.accessToken, listing.ebay_item_id, proposal.field, proposal.proposed_value);
 
     // Sync the change back to our local watched_listings record
