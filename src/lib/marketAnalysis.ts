@@ -10,104 +10,114 @@ export function extractKeywords(title: string): string {
 export interface MarketInsights {
   averagePrice: number | null;
   suggestedCategoryId: string | null;
+  suggestedCategoryName: string | null;
   suggestedTitle: string | null;
 }
 
-export async function getMarketInsights(accessToken: string, title: string, categoryId: string | null): Promise<MarketInsights> {
+export async function getMarketInsights(
+  accessToken: string,
+  title: string,
+  categoryId: string | null
+): Promise<MarketInsights> {
+  const defaultInsights: MarketInsights = {
+    averagePrice: null,
+    suggestedCategoryId: null,
+    suggestedCategoryName: null,
+    suggestedTitle: null,
+  };
+
   const query = extractKeywords(title);
-  const defaultInsights: MarketInsights = { averagePrice: null, suggestedCategoryId: null, suggestedTitle: null };
   if (!query) return defaultInsights;
 
+  // --- Step 1: Find the correct category using eBay's own algorithm ---
+  let bestCategoryId: string | null = categoryId; // use known category as base
+  let bestCategoryName: string | null = null;
+
+  try {
+    const { getBestCategory } = await import('./ebaySuggestCategory');
+    const suggestion = await getBestCategory(accessToken, title);
+    if (suggestion && suggestion.percentItemFound >= 30) {
+      // Only override if eBay is at least 30% confident
+      bestCategoryId = suggestion.categoryId;
+      bestCategoryName = `${suggestion.categoryParentName} > ${suggestion.categoryName}`;
+    }
+  } catch (suggestError) {
+    console.warn('GetSuggestedCategories unavailable:', suggestError);
+  }
+
+  // --- Step 2: Search Browse API filtered by the confirmed/suggested category ---
   let url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=50`;
-  // Rimuoviamo il filtro per category_ids per poter capire in quali categorie postano i competitor
-  // se usiamo sempre la nostra potremmo non scoprire mai se è sbagliata!
+  if (bestCategoryId) {
+    url += `&category_ids=${bestCategoryId}`;
+  }
 
   const res = await fetch(url, {
     method: 'GET',
     headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_IT', 
-      'X-EBAY-C-ENDUSERCTX': 'affiliateCampaignId=<ePNCampaignId>,affiliateReferenceId=<referenceId>'
-    }
+      Authorization: `Bearer ${accessToken}`,
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_IT',
+    },
   });
 
   if (!res.ok) {
     console.error(`Ricerca mercato eBay fallita: ${res.status}`);
-    return defaultInsights;
+    return { ...defaultInsights, suggestedCategoryId: bestCategoryId, suggestedCategoryName: bestCategoryName };
   }
 
   const data = await res.json();
   if (!data.itemSummaries || data.itemSummaries.length === 0) {
-    return defaultInsights;
+    return { ...defaultInsights, suggestedCategoryId: bestCategoryId, suggestedCategoryName: bestCategoryName };
   }
 
+  // --- Step 3: Compute average price and extract SEO keywords ---
   let total = 0;
   let count = 0;
-  const categoryCounts: Record<string, number> = {};
   const wordCounts: Record<string, number> = {};
 
   for (const item of data.itemSummaries) {
-    // Media Prezzi
     const priceStr = item.price?.value;
     if (priceStr) {
       const price = parseFloat(priceStr);
-      if (!isNaN(price)) {
+      if (!isNaN(price) && price > 0) {
         total += price;
         count++;
       }
     }
 
-    // Identificazione Categorie
-    const cats = item.categories;
-    if (cats && cats.length > 0) {
-      const mainCat = cats[0].categoryId;
-      categoryCounts[mainCat] = (categoryCounts[mainCat] || 0) + 1;
-    }
-  }
-
-  // Calcolo Prezzo Medio
-  const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
-
-  // Calcolo Categoria Suggerita (quella più frequente)
-  let bestCategory: string | null = null;
-  let maxCatCount = 0;
-  for (const cat in categoryCounts) {
-    if (categoryCounts[cat] > maxCatCount) {
-      maxCatCount = categoryCounts[cat];
-      bestCategory = cat;
-    }
-  }
-
-  // Estrazione Keyword (Titolo) filtrata solo sugli oggetti della categoria vincente
-  for (const item of data.itemSummaries) {
-    const cats = item.categories;
-    if (bestCategory && cats && cats.length > 0 && cats[0].categoryId !== bestCategory) {
-      continue; // Ignora oggetti di altre categorie per la SEO
-    }
+    // Extract SEO keywords from competitor titles
     if (item.title) {
-      const itemWords = item.title.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter((w: string) => w.length > 2);
+      const itemWords = item.title
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, ' ')
+        .split(/\s+/)
+        .filter((w: string) => w.length > 2);
       for (const w of itemWords) {
         wordCounts[w] = (wordCounts[w] || 0) + 1;
       }
     }
   }
 
-  // Generazione Titolo (Unione delle 10-12 keyword più usate)
+  const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
+
+  // --- Step 4: Build optimized title from top keywords ---
   let suggestedTitle: string | null = null;
-  const sortedWords = Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const sortedWords = Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map((e) => e[0]);
+
   if (sortedWords.length > 0) {
     let newTitle = '';
     for (const w of sortedWords) {
-      if ((newTitle.length + w.length + 1) > 80) break;
+      if (newTitle.length + w.length + 1 > 80) break;
       newTitle += (newTitle ? ' ' : '') + w;
     }
-    // Capitalize first letters for better visual
-    suggestedTitle = newTitle.replace(/\b\w/g, l => l.toUpperCase());
+    suggestedTitle = newTitle.replace(/\b\w/g, (l) => l.toUpperCase());
   }
 
   return {
     averagePrice,
-    suggestedCategoryId: bestCategory,
-    suggestedTitle
+    suggestedCategoryId: bestCategoryId,
+    suggestedCategoryName: bestCategoryName,
+    suggestedTitle,
   };
 }

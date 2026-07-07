@@ -117,56 +117,59 @@ export async function applyProposal(
       const newTitle = proposedValue.substring(0, 80).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       await reviseListingField(accessToken, itemId, `<Title>${newTitle}</Title>`);
       return;
-    case 'category':
+    case 'category': {
       let catXml = `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`;
       
       const details = await getExistingItemDetails(accessToken, itemId);
       
-      // Gestione ConditionID
+      // Gestione ConditionID obbligatoria
       const conditionId = details?.conditionId || '1000';
       catXml += `\n    <ConditionID>${conditionId}</ConditionID>`;
 
-      // Gestione Item Specifics (Marca e Tipo obbligatori per sbloccare categorie rigide come Lampade)
-      const list = details?.specifics ? [...details.specifics] : [];
-      const hasBrand = list.some(spec => {
-        const n = String(spec.Name).toLowerCase();
-        return n === 'marca' || n === 'brand';
-      });
-      const hasType = list.some(spec => {
-        const n = String(spec.Name).toLowerCase();
-        return n === 'tipo' || n === 'type';
-      });
-
-      if (!hasBrand) {
-        list.push({ Name: 'Marca', Value: 'Senza marca' });
-      }
-
-      if (!hasType) {
-        const titleLower = (details?.title || '').toLowerCase();
-        let tipoVal = 'Altro';
-        if (titleLower.includes('lampada') || titleLower.includes('lamp')) {
-          tipoVal = 'Lampada';
-        } else if (titleLower.includes('cover') || titleLower.includes('custodia') || titleLower.includes('case')) {
-          tipoVal = 'Custodia';
+      // Usa la Taxonomy API per sapere ESATTAMENTE quali specifiche sono obbligatorie
+      // per la nuova categoria e compilarle automaticamente con valori validi
+      const existingSpecNames = (details?.specifics ?? []).map((s) => String(s.Name));
+      
+      let list = details?.specifics ? [...details.specifics] : [];
+      
+      try {
+        const { getCategoryAspects, buildMinimalSpecifics } = await import('./ebayTaxonomy');
+        const taxonomyResult = await getCategoryAspects(accessToken, proposedValue);
+        if (taxonomyResult) {
+          const missing = buildMinimalSpecifics(taxonomyResult, existingSpecNames);
+          for (const spec of missing) {
+            list.push({ Name: spec.Name, Value: spec.Value });
+          }
         }
-        list.push({ Name: 'Tipo', Value: tipoVal });
+      } catch (taxonomyError) {
+        console.warn('Taxonomy API not available, using fallback specifics logic:', taxonomyError);
+        // Fallback: ensure Marca and Tipo are present at minimum
+        const hasBrand = list.some(s => ['marca', 'brand'].includes(String(s.Name).toLowerCase()));
+        const hasType = list.some(s => ['tipo', 'type'].includes(String(s.Name).toLowerCase()));
+        if (!hasBrand) list.push({ Name: 'Marca', Value: 'Senza marca' });
+        if (!hasType) {
+          const tl = (details?.title || '').toLowerCase();
+          const tipo = tl.includes('lamp') ? 'Lampada' : tl.includes('case') || tl.includes('cover') ? 'Custodia' : 'Altro';
+          list.push({ Name: 'Tipo', Value: tipo });
+        }
       }
 
-      // Ricostruiamo l'XML di ItemSpecifics per inviarlo ad eBay senza perdere i vecchi valori
-      const specsXmlList = list.map(spec => {
+      // Ricostruisce XML ItemSpecifics
+      const specsXmlList = list.map((spec) => {
         const name = escapeXml(String(spec.Name));
-        const vals = toArray(spec.Value).map(v => `<Value>${escapeXml(String(v))}</Value>`).join('');
-        return `
-      <NameValueList>
-        <Name>${name}</Name>
-        ${vals}
-      </NameValueList>`;
+        const vals = toArray(spec.Value)
+          .map((v) => `<Value>${escapeXml(String(v))}</Value>`)
+          .join('');
+        return `\n      <NameValueList><Name>${name}</Name>${vals}</NameValueList>`;
       });
 
-      catXml += `\n    <ItemSpecifics>${specsXmlList.join('')}\n    </ItemSpecifics>`;
+      if (specsXmlList.length > 0) {
+        catXml += `\n    <ItemSpecifics>${specsXmlList.join('')}\n    </ItemSpecifics>`;
+      }
 
       await reviseListingField(accessToken, itemId, catXml);
       return;
+    }
     default:
       throw new Error(`Applicazione automatica non supportata per il campo "${field}"`);
   }

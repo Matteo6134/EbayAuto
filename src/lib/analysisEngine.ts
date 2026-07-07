@@ -76,11 +76,14 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
 
   if (noInterestAtAll && recentSales === 0) {
     if (insights.suggestedCategoryId && insights.suggestedCategoryId !== snapshot.categoryId) {
+      const catLabel = insights.suggestedCategoryName
+        ? `"${insights.suggestedCategoryName}" (ID: ${insights.suggestedCategoryId})`
+        : `ID: ${insights.suggestedCategoryId}`;
       proposals.push({
         field: 'category',
         currentValue: snapshot.categoryId ?? 'sconosciuta',
         proposedValue: insights.suggestedCategoryId,
-        rationale: `Nessun interesse riscontrato. L'analisi dei top seller suggerisce che la categoria giusta per questo prodotto è la ${insights.suggestedCategoryId}. Allineati alla concorrenza per farti trovare!`,
+        rationale: `Nessun interesse riscontrato. L'IA di eBay suggerisce la categoria ${catLabel} come la più adatta per questo prodotto. Il cambio verrà applicato automaticamente con le specifiche obbligatorie!`,
         impact: 'high',
         actionable: true,
       });
@@ -89,7 +92,7 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         field: 'category',
         currentValue: snapshot.categoryId ?? 'sconosciuta',
         proposedValue: 'rivedi manualmente',
-        rationale: `Nessun interesse (0 osservatori oggi) e nessuna vendita. Anche il mercato fatica a capire la categoria esatta per questo prodotto.`,
+        rationale: `Nessun interesse (0 osservatori oggi) e nessuna vendita. Anche il motore eBay non ha una categoria chiara per questo prodotto: prova a modificare il titolo con parole più precise.`,
         impact: 'high',
         actionable: false,
       });

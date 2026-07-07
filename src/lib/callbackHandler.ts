@@ -126,6 +126,15 @@ async function handleProposalCallback(
     const tokens = await refreshAccessToken(connection.refresh_token);
     await applyProposal(tokens.accessToken, listing.ebay_item_id, proposal.field, proposal.proposed_value);
 
+    // Sync the change back to our local watched_listings record
+    if (proposal.field === 'category') {
+      await supabase.from('watched_listings').update({ category_id: proposal.proposed_value }).eq('id', proposal.listing_id);
+    } else if (proposal.field === 'title') {
+      await supabase.from('watched_listings').update({ title: proposal.proposed_value }).eq('id', proposal.listing_id);
+    } else if (proposal.field === 'price') {
+      // price is tracked via daily_metrics; no need to update watched_listings
+    }
+
     const { error: statusError } = await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
     const { error: logError } = await supabase.from('change_log').insert({
       listing_id: proposal.listing_id,
