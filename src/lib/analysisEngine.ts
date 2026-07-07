@@ -40,9 +40,10 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
   // Analisi di Mercato (Giorno 1 o in caso di crollo vendite)
   const marketAverage = await getMarketAveragePrice(accessToken, snapshot.title, snapshot.categoryId);
   if (marketAverage !== null) {
-    // Se il nostro prezzo è superiore del 5% rispetto alla media di mercato
-    const threshold = marketAverage * 1.05;
-    if (snapshot.today.price > threshold) {
+    const highThreshold = marketAverage * 1.05;
+    const lowThreshold = marketAverage * 0.85;
+
+    if (snapshot.today.price > highThreshold) {
       proposals.push({
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),
@@ -51,7 +52,24 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         impact: 'high',
         actionable: true,
       });
-      // Se abbiamo già generato una proposta di prezzo ad alto impatto, possiamo anche ritornare o continuare
+    } else if (snapshot.today.price < lowThreshold) {
+      proposals.push({
+        field: 'price',
+        currentValue: snapshot.today.price.toFixed(2),
+        proposedValue: (marketAverage * 0.95).toFixed(2),
+        rationale: `Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è molto inferiore alla media di mercato (${marketAverage.toFixed(2)}€). Puoi permetterti di alzarlo e guadagnare di più!`,
+        impact: 'high',
+        actionable: true,
+      });
+    } else {
+      proposals.push({
+        field: 'price',
+        currentValue: snapshot.today.price.toFixed(2),
+        proposedValue: snapshot.today.price.toFixed(2),
+        rationale: `Il tuo prezzo è perfettamente in linea con la media di mercato attuale (${marketAverage.toFixed(2)}€). Nessuna modifica necessaria.`,
+        impact: 'normal',
+        actionable: false,
+      });
     }
   }
 
