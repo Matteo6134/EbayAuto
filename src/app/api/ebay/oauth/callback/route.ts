@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   try {
     const tokens = await exchangeCodeForTokens(code);
     if (!tokens.refreshToken) {
-      return htmlResponse('Collegamento a eBay fallito: eBay non ha fornito un refresh_token. Vai nelle impostazioni del tuo account eBay, rimuovi l\\'autorizzazione per questa app e riprova con /connectebay.', 400);
+      return htmlResponse("Collegamento a eBay fallito: eBay non ha fornito un refresh_token. Vai nelle impostazioni del tuo account eBay, rimuovi l'autorizzazione per questa app e riprova con /connectebay.", 400);
     }
 
     const { error: updateError } = await supabase
