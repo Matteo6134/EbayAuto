@@ -46,7 +46,13 @@ async function requestToken(body: string): Promise<EbayTokens & { refreshToken: 
     body,
   });
   if (!res.ok) {
-    throw new Error(`Scambio token eBay fallito (status ${res.status})`);
+    let errorText = '';
+    try {
+      errorText = await res.text();
+    } catch (e) {
+      errorText = 'Impossibile leggere i dettagli dell\'errore.';
+    }
+    throw new Error(`Scambio token eBay fallito (status ${res.status}): ${errorText}`);
   }
   const data = await res.json();
   const accessTokenExpiresAt = new Date(Date.now() + (data.expires_in - 60) * 1000).toISOString();
