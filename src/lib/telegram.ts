@@ -25,11 +25,18 @@ export interface TelegramUpdate {
 
 export interface InlineKeyboardButton {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  web_app?: { url: string }; // for Telegram Mini App launch buttons
 }
 
 export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
+}
+
+export function getDashboardUrl(): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? '';
+  const url = base.startsWith('http') ? base : `https://${base}`;
+  return `${url}/dashboard`;
 }
 
 function apiUrl(method: string): string {

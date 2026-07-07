@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
 import { collectDailyMetrics } from '@/lib/metricsCollector';
 import { generateAndSendProposals } from '@/lib/proposalGenerator';
-import { sendMessage } from '@/lib/telegram';
+import { sendMessage, getDashboardUrl } from '@/lib/telegram';
 import { buildDailySummaryText, type ListingRecapData } from '@/lib/recap';
 import { refreshAccessToken } from '@/lib/ebayOAuth';
 
@@ -89,7 +89,11 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  await sendMessage(chatId, buildDailySummaryText(recapData));
+  await sendMessage(chatId, buildDailySummaryText(recapData), {
+    inline_keyboard: [[
+      { text: '📊 Apri Dashboard', web_app: { url: getDashboardUrl() } },
+    ]],
+  });
 
   return NextResponse.json({ ok: true });
 }
