@@ -84,10 +84,9 @@ export async function applyProposal(
     case 'category':
       let catXml = `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`;
       // Changing category often drops the ConditionID which is mandatory for many categories, so we must re-supply it
-      const conditionId = await getExistingConditionId(accessToken, itemId);
-      if (conditionId) {
-        catXml += `\n    <ConditionID>${conditionId}</ConditionID>`;
-      }
+      // Se non c'è, usiamo 1000 (Nuovo) come default per sbloccare l'API.
+      const conditionId = (await getExistingConditionId(accessToken, itemId)) || '1000';
+      catXml += `\n    <ConditionID>${conditionId}</ConditionID>`;
       await reviseListingField(accessToken, itemId, catXml);
       return;
     default:

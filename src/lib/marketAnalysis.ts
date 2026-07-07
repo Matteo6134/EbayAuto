@@ -64,20 +64,11 @@ export async function getMarketInsights(accessToken: string, title: string, cate
       categoryCounts[mainCat] = (categoryCounts[mainCat] || 0) + 1;
     }
 
-    // Estrazione Keyword (Titolo)
-    if (item.title) {
-      const itemWords = item.title.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter((w: string) => w.length > 2);
-      for (const w of itemWords) {
-        wordCounts[w] = (wordCounts[w] || 0) + 1;
-      }
-    }
-  }
-
   // Calcolo Prezzo Medio
   const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
 
   // Calcolo Categoria Suggerita (quella più frequente)
-  let bestCategory = null;
+  let bestCategory: string | null = null;
   let maxCatCount = 0;
   for (const cat in categoryCounts) {
     if (categoryCounts[cat] > maxCatCount) {
@@ -86,8 +77,22 @@ export async function getMarketInsights(accessToken: string, title: string, cate
     }
   }
 
+  // Estrazione Keyword (Titolo) filtrata solo sugli oggetti della categoria vincente
+  for (const item of data.itemSummaries) {
+    const cats = item.categories;
+    if (bestCategory && cats && cats.length > 0 && cats[0].categoryId !== bestCategory) {
+      continue; // Ignora oggetti di altre categorie per la SEO
+    }
+    if (item.title) {
+      const itemWords = item.title.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter((w: string) => w.length > 2);
+      for (const w of itemWords) {
+        wordCounts[w] = (wordCounts[w] || 0) + 1;
+      }
+    }
+  }
+
   // Generazione Titolo (Unione delle 10-12 keyword più usate)
-  let suggestedTitle = null;
+  let suggestedTitle: string | null = null;
   const sortedWords = Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).map(e => e[0]);
   if (sortedWords.length > 0) {
     let newTitle = '';
