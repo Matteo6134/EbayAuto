@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const { data: listings } = await supabase
     .from('watched_listings')
-    .select('id, title')
+    .select('id, title, category_id')
     .eq('chat_id', chatId)
     .eq('status', 'active');
 
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     const snapshot = {
       listingId: listing.id,
       title: listing.title,
-      categoryId: null,
+      categoryId: listing.category_id ? String(listing.category_id) : null,
       today: {
         metricDate: today.metric_date,
         watchCount: today.watch_count,
