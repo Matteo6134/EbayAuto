@@ -55,6 +55,21 @@ export async function sendMessage(chatId: number, text: string, replyMarkup?: In
   }
 }
 
+export async function editMessageText(chatId: number, messageId: number, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<void> {
+  const body: Record<string, unknown> = { chat_id: chatId, message_id: messageId, text };
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
+  const res = await fetch(apiUrl('editMessageText'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Telegram editMessageText fallita (status ${res.status})`);
+  }
+}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const res = await fetch(apiUrl('answerCallbackQuery'), {
     method: 'POST',

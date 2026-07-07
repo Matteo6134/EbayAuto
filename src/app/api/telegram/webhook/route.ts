@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
 import { routeCommand, isAuthorized } from '@/lib/commandRouter';
 import { sendMessage, answerCallbackQuery, verifyWebhookSecret, TelegramUpdate } from '@/lib/telegram';
-import { handleProposalCallback } from '@/lib/callbackHandler';
+import { handleCallback } from '@/lib/callbackHandler';
+import { editMessageText } from '@/lib/telegram';
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-telegram-bot-api-secret-token');
@@ -24,10 +25,14 @@ export async function POST(req: NextRequest) {
       await answerCallbackQuery(callbackQuery.id);
       if (isAuthorized(callbackQuery.from.id)) {
         const supabase = getSupabaseClient();
-        const result = await handleProposalCallback(supabase, callbackQuery.data);
+        const result = await handleCallback(supabase, callbackQuery.data, callbackQuery.from.id);
         if (result) {
           const targetChatId = result.chatId || callbackQuery.from.id;
-          await sendMessage(targetChatId, result.text);
+          if (result.editMessage && callbackQuery.message?.message_id) {
+            await editMessageText(targetChatId, callbackQuery.message.message_id, result.text, result.replyMarkup);
+          } else {
+            await sendMessage(targetChatId, result.text, result.replyMarkup);
+          }
         }
       }
     } catch (err) {
@@ -44,7 +49,7 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = getSupabaseClient();
     const result = await routeCommand(supabase, message.chat.id, message.text);
-    await sendMessage(message.chat.id, result.text);
+    await sendMessage(message.chat.id, result.text, result.replyMarkup);
   } catch (err) {
     console.error('Telegram webhook: errore durante la gestione del comando', err);
   }

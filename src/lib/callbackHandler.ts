@@ -1,15 +1,81 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from './ebayOAuth';
 import { applyProposal } from './ebayRevise';
+import { buildProductListMessage, buildProductItemMessage } from './commands/listproducts';
+import { handlePause, handleResume } from './commands/pauseresume';
+import { handleRemove } from './commands/removeproduct';
+import { handleRecap } from './commands/recap';
 
 export interface CallbackResult {
   chatId: number;
   text: string;
+  replyMarkup?: any;
+  editMessage?: boolean;
 }
 
-export async function handleProposalCallback(
+export async function handleCallback(
   supabase: SupabaseClient,
-  callbackData: string
+  callbackData: string,
+  chatId: number
+): Promise<CallbackResult | null> {
+  if (callbackData.startsWith('proposal:')) {
+    return handleProposalCallback(supabase, callbackData, chatId);
+  }
+  if (callbackData.startsWith('manage_')) {
+    return handleManageCallback(supabase, callbackData, chatId);
+  }
+  return null;
+}
+
+async function handleManageCallback(
+  supabase: SupabaseClient,
+  callbackData: string,
+  chatId: number
+): Promise<CallbackResult | null> {
+  if (callbackData.startsWith('manage_list:')) {
+    const page = Number(callbackData.split(':')[1]);
+    const res = await buildProductListMessage(supabase, chatId, page);
+    return { chatId, text: res.text, replyMarkup: res.replyMarkup, editMessage: true };
+  }
+
+  if (callbackData.startsWith('manage_item:')) {
+    const id = Number(callbackData.split(':')[1]);
+    const res = await buildProductItemMessage(supabase, chatId, id);
+    return { chatId, text: res.text, replyMarkup: res.replyMarkup, editMessage: true };
+  }
+
+  if (callbackData.startsWith('manage_action:')) {
+    const [, action, idStr] = callbackData.split(':');
+    const id = Number(idStr);
+    
+    let resText = '';
+    const mockCtx = { supabase, chatId, args: idStr };
+
+    if (action === 'pause') resText = (await handlePause(mockCtx)).text;
+    else if (action === 'resume') resText = (await handleResume(mockCtx)).text;
+    else if (action === 'remove') {
+      resText = (await handleRemove(mockCtx)).text;
+      const listRes = await buildProductListMessage(supabase, chatId, 0);
+      return { chatId, text: `${resText}\n\n${listRes.text}`, replyMarkup: listRes.replyMarkup, editMessage: true };
+    }
+    else if (action === 'recap') {
+      resText = (await handleRecap(mockCtx)).text;
+      const itemRes = await buildProductItemMessage(supabase, chatId, id);
+      return { chatId, text: `${resText}\n\n${itemRes.text}`, replyMarkup: itemRes.replyMarkup, editMessage: true };
+    }
+
+    // Refresh the item menu
+    const itemRes = await buildProductItemMessage(supabase, chatId, id);
+    return { chatId, text: `${resText}\n\n${itemRes.text}`, replyMarkup: itemRes.replyMarkup, editMessage: true };
+  }
+
+  return null;
+}
+
+async function handleProposalCallback(
+  supabase: SupabaseClient,
+  callbackData: string,
+  chatIdFromCallback: number
 ): Promise<CallbackResult | null> {
   const match = callbackData.match(/^proposal:(\d+):(approve|reject)$/);
   if (!match) {
@@ -25,10 +91,10 @@ export async function handleProposalCallback(
     .maybeSingle();
 
   if (!proposal) {
-    return { chatId: 0, text: 'Proposta non trovata.' };
+    return { chatId: chatIdFromCallback, text: 'Proposta non trovata.' };
   }
   if (proposal.status !== 'pending') {
-    return { chatId: 0, text: `Questa proposta è già stata gestita (stato: ${proposal.status}).` };
+    return { chatId: chatIdFromCallback, text: `Questa proposta è già stata gestita (stato: ${proposal.status}).` };
   }
 
   const { data: listing } = await supabase
@@ -38,7 +104,7 @@ export async function handleProposalCallback(
     .maybeSingle();
 
   if (!listing) {
-    return { chatId: 0, text: 'Prodotto associato non trovato.' };
+    return { chatId: chatIdFromCallback, text: 'Prodotto associato non trovato.' };
   }
 
   if (action === 'reject') {
