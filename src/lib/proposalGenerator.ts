@@ -18,9 +18,10 @@ export async function generateAndSendProposals(
   supabase: SupabaseClient,
   chatId: number,
   listingId: number,
-  snapshot: ListingSnapshot
+  snapshot: ListingSnapshot,
+  accessToken: string
 ): Promise<GenerateProposalsResult> {
-  const drafts = analyzeListing(snapshot);
+  const drafts = await analyzeListing(snapshot, accessToken);
   const today = new Date().toISOString().slice(0, 10);
   const informational: string[] = [];
   let sent = 0;

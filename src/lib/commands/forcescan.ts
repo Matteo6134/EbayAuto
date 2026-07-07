@@ -1,4 +1,5 @@
 import type { CommandHandler } from './types';
+import { refreshAccessToken } from '@/lib/ebayOAuth';
 import { collectDailyMetrics } from '@/lib/metricsCollector';
 import { generateAndSendProposals } from '@/lib/proposalGenerator';
 import { buildDailySummaryText, type ListingRecapData } from '@/lib/recap';
@@ -59,8 +60,12 @@ export const handleForceScan: CommandHandler = async ({ supabase, chatId }) => {
 
       let informational: string[] = [];
       try {
-        const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot);
-        informational = result.informational;
+        const { data: connection } = await supabase.from('ebay_connection').select('refresh_token').eq('chat_id', chatId).maybeSingle();
+        if (connection?.refresh_token) {
+          const tokens = await refreshAccessToken(connection.refresh_token);
+          const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot, tokens.accessToken);
+          informational = result.informational;
+        }
       } catch (err) {
         console.error(`ForceScan: generazione proposte fallita per il prodotto ${listing.title}`, err);
       }

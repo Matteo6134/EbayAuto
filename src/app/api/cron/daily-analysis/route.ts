@@ -4,6 +4,7 @@ import { collectDailyMetrics } from '@/lib/metricsCollector';
 import { generateAndSendProposals } from '@/lib/proposalGenerator';
 import { sendMessage } from '@/lib/telegram';
 import { buildDailySummaryText, type ListingRecapData } from '@/lib/recap';
+import { refreshAccessToken } from '@/lib/ebayOAuth';
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -63,8 +64,12 @@ export async function GET(req: NextRequest) {
 
     let informational: string[] = [];
     try {
-      const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot);
-      informational = result.informational;
+      const { data: connection } = await supabase.from('ebay_connection').select('refresh_token').eq('chat_id', chatId).maybeSingle();
+      if (connection?.refresh_token) {
+        const tokens = await refreshAccessToken(connection.refresh_token);
+        const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot, tokens.accessToken);
+        informational = result.informational;
+      }
     } catch (err) {
       console.error(`Cron giornaliero: generazione proposte fallita per il prodotto ${listing.title}`, err);
     }

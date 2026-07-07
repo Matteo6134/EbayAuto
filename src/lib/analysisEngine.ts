@@ -1,3 +1,5 @@
+import { getMarketAveragePrice } from './marketAnalysis';
+
 export interface MetricPoint {
   metricDate: string;
   watchCount: number;
@@ -29,11 +31,29 @@ function average(values: number[]): number {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
-export function analyzeListing(snapshot: ListingSnapshot): ProposalDraft[] {
+export async function analyzeListing(snapshot: ListingSnapshot, accessToken: string): Promise<ProposalDraft[]> {
   const proposals: ProposalDraft[] = [];
   const avgWatch = average(snapshot.history.map((h) => h.watchCount));
   const recentSales = snapshot.history.reduce((sum, h) => sum + h.quantitySold, 0) + snapshot.today.quantitySold;
   const hasEnoughHistory = snapshot.history.length >= 3;
+
+  // Analisi di Mercato (Giorno 1 o in caso di crollo vendite)
+  const marketAverage = await getMarketAveragePrice(accessToken, snapshot.title, snapshot.categoryId);
+  if (marketAverage !== null) {
+    // Se il nostro prezzo è superiore del 5% rispetto alla media di mercato
+    const threshold = marketAverage * 1.05;
+    if (snapshot.today.price > threshold) {
+      proposals.push({
+        field: 'price',
+        currentValue: snapshot.today.price.toFixed(2),
+        proposedValue: marketAverage.toFixed(2),
+        rationale: `Il mercato vende oggetti simili a una media di ${marketAverage.toFixed(2)}€. Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è fuori mercato. Allinealo per sbloccare le vendite!`,
+        impact: 'high',
+        actionable: true,
+      });
+      // Se abbiamo già generato una proposta di prezzo ad alto impatto, possiamo anche ritornare o continuare
+    }
+  }
 
   const noInterestAtAll = avgWatch > 0 ? snapshot.today.watchCount < avgWatch * 0.3 : snapshot.today.watchCount === 0;
 
@@ -75,14 +95,17 @@ export function analyzeListing(snapshot: ListingSnapshot): ProposalDraft[] {
 
   if (hasEnoughHistory && snapshot.today.watchCount >= 3 && recentSales === 0) {
     const discountedPrice = Math.round(snapshot.today.price * 0.9 * 100) / 100;
-    proposals.push({
-      field: 'price',
-      currentValue: snapshot.today.price.toFixed(2),
-      proposedValue: discountedPrice.toFixed(2),
-      rationale: `Interesse presente (${snapshot.today.watchCount} watcher) ma nessuna vendita da almeno ${snapshot.history.length} giorni: sconto del 10% proposto.`,
-      impact: 'normal',
-      actionable: true,
-    });
+    // Evitiamo di sovrascrivere o proporre due sconti di prezzo se il mercato ha già fatto la sua proposta
+    if (!proposals.some(p => p.field === 'price')) {
+      proposals.push({
+        field: 'price',
+        currentValue: snapshot.today.price.toFixed(2),
+        proposedValue: discountedPrice.toFixed(2),
+        rationale: `Interesse presente (${snapshot.today.watchCount} watcher) ma nessuna vendita da almeno ${snapshot.history.length} giorni: sconto del 10% proposto.`,
+        impact: 'normal',
+        actionable: true,
+      });
+    }
   }
 
   const yesterday = snapshot.history[snapshot.history.length - 1];
