@@ -12,7 +12,7 @@ describe('buildDailySummaryText', () => {
     ];
     const text = buildDailySummaryText(listings);
     expect(text).toContain('Prodotto A');
-    expect(text).toContain('12 watcher');
+    expect(text).toContain('12 osservatori');
     expect(text).toContain('+20%');
     expect(text).toContain('1 venduti');
   });

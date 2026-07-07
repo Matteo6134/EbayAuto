@@ -30,13 +30,13 @@ describe('handleProposalCallback', () => {
 
   it('ritorna null se il formato di callback_data non è riconosciuto', async () => {
     const supabase = fakeSupabase([]);
-    const result = await handleProposalCallback(supabase, 'qualcosa:non:valido');
+    const result = await handleProposalCallback(supabase, 'qualcosa:non:valido', 100);
     expect(result).toBeNull();
   });
 
   it('segnala se la proposta non esiste', async () => {
     const supabase = fakeSupabase([{ data: null, error: null }]);
-    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve', 100);
     expect(result?.text).toContain('Proposta non trovata');
   });
 
@@ -44,7 +44,7 @@ describe('handleProposalCallback', () => {
     const supabase = fakeSupabase([
       { data: { id: 1, listing_id: 10, field: 'price', proposed_value: '18.00', current_value: '20.00', status: 'applied' }, error: null },
     ]);
-    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve', 100);
     expect(result?.text).toContain('già stata gestita');
   });
 
@@ -53,7 +53,7 @@ describe('handleProposalCallback', () => {
       { data: { id: 1, listing_id: 10, field: 'price', proposed_value: '18.00', current_value: '20.00', status: 'pending' }, error: null },
       { data: { id: 10, ebay_item_id: 'AAA', chat_id: 210039451, title: 'Prodotto A' }, error: null },
     ]);
-    const result = await handleProposalCallback(supabase, 'proposal:1:reject');
+    const result = await handleProposalCallback(supabase, 'proposal:1:reject', 100);
     expect(result).toEqual({ chatId: 210039451, text: '❌ Proposta rifiutata: Prodotto A' });
   });
 
@@ -70,7 +70,7 @@ describe('handleProposalCallback', () => {
       { data: { refresh_token: 'rt-1' }, error: null },
     ]);
 
-    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve', 100);
 
     expect(applyProposal).toHaveBeenCalledWith('access-1', 'AAA', 'price', '18.00');
     expect(result).toEqual({
@@ -94,7 +94,7 @@ describe('handleProposalCallback', () => {
       { data: null, error: null },
     ]);
 
-    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve', 100);
 
     expect(applyProposal).toHaveBeenCalledWith('access-1', 'AAA', 'price', '18.00');
     expect(result?.chatId).toBe(210039451);
@@ -115,7 +115,7 @@ describe('handleProposalCallback', () => {
       { data: { refresh_token: 'rt-1' }, error: null },
     ]);
 
-    const result = await handleProposalCallback(supabase, 'proposal:1:approve');
+    const result = await handleProposalCallback(supabase, 'proposal:1:approve', 100);
 
     expect(result?.text).toContain('eBay ha rifiutato la modifica');
   });

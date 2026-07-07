@@ -7,11 +7,11 @@ vi.mock('@/lib/telegram', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/telegram')>();
   return { ...actual, sendMessage: vi.fn(), answerCallbackQuery: vi.fn() };
 });
-vi.mock('@/lib/callbackHandler', () => ({ handleProposalCallback: vi.fn() }));
+vi.mock('@/lib/callbackHandler', () => ({ handleCallback: vi.fn() }));
 
 import { routeCommand } from '@/lib/commandRouter';
 import { sendMessage, answerCallbackQuery } from '@/lib/telegram';
-import { handleProposalCallback } from '@/lib/callbackHandler';
+import { handleCallback } from '@/lib/callbackHandler';
 import { POST } from '@/app/api/telegram/webhook/route';
 
 function makeRequest(body: unknown, secret: string | null) {
@@ -31,7 +31,7 @@ describe('POST /api/telegram/webhook', () => {
     vi.mocked(routeCommand).mockReset();
     vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined);
     vi.mocked(answerCallbackQuery).mockReset().mockResolvedValue(undefined);
-    vi.mocked(handleProposalCallback).mockReset();
+    vi.mocked(handleCallback).mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -61,7 +61,7 @@ describe('POST /api/telegram/webhook', () => {
 
     expect(res.status).toBe(200);
     expect(routeCommand).toHaveBeenCalledWith({}, 100, '/help');
-    expect(sendMessage).toHaveBeenCalledWith(100, 'risposta di test');
+    expect(sendMessage).toHaveBeenCalledWith(100, 'risposta di test', undefined);
   });
 
   it('ritorna 400 se il corpo della richiesta non è JSON valido', async () => {
@@ -92,7 +92,7 @@ describe('POST /api/telegram/webhook', () => {
   });
 
   it('gestisce un callback_query: risponde subito e poi manda il messaggio', async () => {
-    vi.mocked(handleProposalCallback).mockResolvedValue({ chatId: 100, text: 'Fatto' });
+    vi.mocked(handleCallback).mockResolvedValue({ chatId: 100, text: 'Fatto' });
     const req = makeRequest(
       { callback_query: { id: 'cbq-1', data: 'proposal:1:approve', from: { id: 100 } } },
       'super-secret'
@@ -101,8 +101,8 @@ describe('POST /api/telegram/webhook', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(handleProposalCallback).toHaveBeenCalledWith({}, 'proposal:1:approve');
-    expect(sendMessage).toHaveBeenCalledWith(100, 'Fatto');
+    expect(handleCallback).toHaveBeenCalledWith({}, 'proposal:1:approve', 100);
+    expect(sendMessage).toHaveBeenCalledWith(100, 'Fatto', undefined);
   });
 
   it('ignora i callback_query da chat non autorizzate', async () => {
@@ -114,11 +114,11 @@ describe('POST /api/telegram/webhook', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(handleProposalCallback).not.toHaveBeenCalled();
+    expect(handleCallback).not.toHaveBeenCalled();
   });
 
-  it('non fallisce se handleProposalCallback lancia un errore', async () => {
-    vi.mocked(handleProposalCallback).mockRejectedValue(new Error('errore interno'));
+  it('non fallisce se handleCallback lancia un errore', async () => {
+    vi.mocked(handleCallback).mockRejectedValue(new Error('errore interno'));
     const req = makeRequest(
       { callback_query: { id: 'cbq-1', data: 'proposal:1:approve', from: { id: 100 } } },
       'super-secret'
@@ -139,11 +139,11 @@ describe('POST /api/telegram/webhook', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(handleProposalCallback).not.toHaveBeenCalled();
+    expect(handleCallback).not.toHaveBeenCalled();
   });
 
-  it('usa il chat_id di chi ha premuto il bottone se handleProposalCallback non ne conosce uno reale (es. proposta non trovata)', async () => {
-    vi.mocked(handleProposalCallback).mockResolvedValue({ chatId: 0, text: 'Proposta non trovata.' });
+  it('usa il chat_id di chi ha premuto il bottone se handleCallback non ne conosce uno reale (es. proposta non trovata)', async () => {
+    vi.mocked(handleCallback).mockResolvedValue({ chatId: 0, text: 'Proposta non trovata.' });
     const req = makeRequest(
       { callback_query: { id: 'cbq-1', data: 'proposal:999:approve', from: { id: 100 } } },
       'super-secret'
@@ -152,6 +152,6 @@ describe('POST /api/telegram/webhook', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(sendMessage).toHaveBeenCalledWith(100, 'Proposta non trovata.');
+    expect(sendMessage).toHaveBeenCalledWith(100, 'Proposta non trovata.', undefined);
   });
 });

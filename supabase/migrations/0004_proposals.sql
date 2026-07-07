@@ -2,7 +2,7 @@ create table if not exists proposals (
   id bigint generated always as identity primary key,
   listing_id bigint not null references watched_listings(id),
   proposal_date date not null,
-  field text not null check (field in ('title', 'price', 'category', 'ad_rate', 'offer', 'relist', 'social_boost', 'seo_fix')),
+  field text not null check (field in ('title', 'price', 'category', 'ad_rate')),
   current_value text,
   proposed_value text not null,
   rationale text not null,

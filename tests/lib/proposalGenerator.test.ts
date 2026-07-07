@@ -6,9 +6,15 @@ vi.mock('@/lib/telegram', async (importOriginal) => {
   return { ...actual, sendMessage: vi.fn() };
 });
 
+vi.mock('@/lib/analysisEngine', () => ({
+  analyzeListing: vi.fn(),
+}));
+
 import { sendMessage } from '@/lib/telegram';
+import { analyzeListing, type ListingSnapshot, type MetricPoint, type ProposalDraft } from '@/lib/analysisEngine';
 import { generateAndSendProposals } from '@/lib/proposalGenerator';
-import type { ListingSnapshot, MetricPoint } from '@/lib/analysisEngine';
+
+const FAKE_TOKEN = 'fake-token';
 
 function metric(overrides: Partial<MetricPoint> = {}): MetricPoint {
   return {
@@ -18,43 +24,67 @@ function metric(overrides: Partial<MetricPoint> = {}): MetricPoint {
     revenue: 0,
     price: 20,
     adRatePercent: null,
+    impressionCount: null,
+    clickCount: null,
+    clickThroughRate: null,
+    ...overrides,
+  };
+}
+
+function snapshot(overrides: Partial<ListingSnapshot> = {}): ListingSnapshot {
+  return {
+    listingId: 1,
+    ebayItemId: '123456789012',
+    title: 'Prodotto Test',
+    categoryId: '1',
+    today: metric(),
+    history: [],
+    ...overrides,
+  };
+}
+
+function draft(overrides: Partial<ProposalDraft> = {}): ProposalDraft {
+  return {
+    field: 'price',
+    currentValue: '20.00',
+    proposedValue: '18.00',
+    rationale: 'Interesse presente ma nessuna vendita: sconto consigliato.',
+    impact: 'normal',
+    actionable: true,
     ...overrides,
   };
 }
 
 describe('generateAndSendProposals', () => {
   beforeEach(() => {
-    vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined);
+    vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined as any);
+    vi.mocked(analyzeListing).mockReset().mockResolvedValue([]);
   });
 
   it('non manda nulla se il motore non genera proposte', async () => {
-    const snapshot: ListingSnapshot = {
-      listingId: 1,
-      title: 'Prodotto Test',
-      categoryId: '1',
-      today: metric(),
-      history: [],
-    };
     const supabase = createFakeSupabase([]);
 
-    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot);
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
 
+    expect(analyzeListing).toHaveBeenCalledWith(expect.objectContaining({ listingId: 1 }), FAKE_TOKEN);
     expect(result).toEqual({ sent: 0, informational: [] });
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('salva come informational e non manda bottoni per una proposta non azionabile', async () => {
-    const history = [metric({ watchCount: 10 }), metric({ watchCount: 10 }), metric({ watchCount: 10 })];
-    const snapshot: ListingSnapshot = {
-      listingId: 1,
-      title: 'Prodotto Test',
-      categoryId: '1',
-      today: metric({ watchCount: 1, quantitySold: 0 }),
-      history,
-    };
-    const supabase = createFakeSupabase([{ data: { id: 99 }, error: null }]);
+    vi.mocked(analyzeListing).mockResolvedValue([
+      draft({
+        field: 'category',
+        currentValue: '1',
+        proposedValue: 'rivedi manualmente',
+        rationale: 'Nessun interesse riscontrato.',
+        impact: 'high',
+        actionable: false,
+      }),
+    ]);
+    const supabase = createFakeSupabase([]);
 
-    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot);
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
 
     expect(result.sent).toBe(0);
     expect(result.informational).toHaveLength(1);
@@ -63,21 +93,13 @@ describe('generateAndSendProposals', () => {
   });
 
   it('salva come pending e manda un messaggio con bottoni per una proposta azionabile', async () => {
-    const history = [
-      metric({ watchCount: 8, quantitySold: 0 }),
-      metric({ watchCount: 8, quantitySold: 0 }),
-      metric({ watchCount: 8, quantitySold: 0 }),
-    ];
-    const snapshot: ListingSnapshot = {
-      listingId: 1,
-      title: 'Prodotto Test',
-      categoryId: '1',
-      today: metric({ watchCount: 8, quantitySold: 0, price: 20 }),
-      history,
-    };
-    const supabase = createFakeSupabase([{ data: { id: 42 }, error: null }]);
+    vi.mocked(analyzeListing).mockResolvedValue([draft()]);
+    const supabase = createFakeSupabase([
+      { data: null, error: null }, // nessuna proposta pending esistente
+      { data: { id: 42 }, error: null }, // insert riuscito
+    ]);
 
-    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot);
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
 
     expect(result.sent).toBe(1);
     expect(sendMessage).toHaveBeenCalledWith(
@@ -91,6 +113,43 @@ describe('generateAndSendProposals', () => {
           ],
         ],
       }
+    );
+  });
+
+  it('salta inserimento e messaggio se esiste già una proposta pending con lo stesso valore', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '18.00' })]);
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00' }, error: null }, // pending identica già presente
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('elimina la vecchia proposta pending obsoleta se il valore proposto è cambiato', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '15.00' })]);
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00' }, error: null }, // pending con valore diverso
+      { data: null, error: null }, // esito della delete
+      { data: { id: 43 }, error: null }, // insert della nuova proposta
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      210039451,
+      expect.stringContaining('15.00'),
+      expect.objectContaining({
+        inline_keyboard: [
+          [
+            { text: '✅ Approva', callback_data: 'proposal:43:approve' },
+            { text: '❌ Rifiuta', callback_data: 'proposal:43:reject' },
+          ],
+        ],
+      })
     );
   });
 });

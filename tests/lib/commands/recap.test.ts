@@ -30,7 +30,7 @@ describe('handleRecap', () => {
     const result = await handleRecap({ supabase, chatId: 1, args: '5' });
 
     expect(result.text).toContain('Prodotto A');
-    expect(result.text).toContain('12 watcher');
+    expect(result.text).toContain('12 osservatori');
   });
 
   it('segnala se non ci sono ancora metriche raccolte per il prodotto', async () => {
