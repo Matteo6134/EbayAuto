@@ -72,7 +72,7 @@ async function handleManageCallback(
   return null;
 }
 
-async function handleProposalCallback(
+export async function handleProposalCallback(
   supabase: SupabaseClient,
   callbackData: string,
   chatIdFromCallback: number
@@ -99,7 +99,7 @@ async function handleProposalCallback(
 
   const { data: listing } = await supabase
     .from('watched_listings')
-    .select('id, ebay_item_id, chat_id, title')
+    .select('id, ebay_item_id, chat_id, title, category_id')
     .eq('id', proposal.listing_id)
     .maybeSingle();
 
@@ -167,6 +167,23 @@ async function handleProposalCallback(
       return {
         chatId: listing.chat_id,
         text: `🎯 Offerta inviata! ${listing.title} — ${offerData.discount}% sconto (${discountedPrice.toFixed(2)}€) agli osservatori. Valida 48 ore. Ti avviso se qualcuno accetta!`,
+      };
+    }
+
+    // Special handling for 'social_boost'
+    if (proposal.field === 'social_boost') {
+      const { generateSocialPost } = await import('./ebaySocial');
+      const post = generateSocialPost(listing.title, 0, listing.category_id ? String(listing.category_id) : null, listing.ebay_item_id, []);
+      
+      // Update proposal status
+      await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
+
+      // Send the generated text to the user
+      await import('./telegram').then(m => m.sendMessage(listing.chat_id, `📱 *Post Social Pronto!*\nCopia e incolla questo testo su Facebook/Instagram:\n\n${post.text}`));
+
+      return {
+        chatId: listing.chat_id,
+        text: `✅ Post social generato e inviato!`,
       };
     }
 

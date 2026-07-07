@@ -66,7 +66,7 @@ export async function checkListingIndexed(
  * 3. AddFixedPriceItem - create a new identical listing (with tiny title tweak to avoid duplicate detection)
  */
 
-interface ListingData {
+export interface ListingData {
   title: string;
   description: string;
   categoryId: string;
@@ -91,7 +91,7 @@ function escapeXml(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-async function fetchListingData(accessToken: string, itemId: string): Promise<ListingData | null> {
+export async function fetchListingData(accessToken: string, itemId: string): Promise<ListingData | null> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ItemID>${itemId}</ItemID>

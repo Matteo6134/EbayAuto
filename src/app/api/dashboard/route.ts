@@ -134,6 +134,9 @@ export async function POST(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  const result = await handleProposalCallback(supabase, `proposal:${proposalId}:${action}`);
+  const result = await handleProposalCallback(supabase, `proposal:${proposalId}:${action}`, chatId);
+  if (!result) {
+    return NextResponse.json({ error: 'Proposal not found or invalid action' }, { status: 400 });
+  }
   return NextResponse.json({ ok: true, message: result.text });
 }

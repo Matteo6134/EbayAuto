@@ -23,9 +23,9 @@ export interface ListingSnapshot {
 }
 
 export interface ProposalDraft {
-  field: 'title' | 'price' | 'category' | 'ad_rate' | 'offer' | 'relist';
+  field: 'title' | 'price' | 'category' | 'ad_rate' | 'offer' | 'relist' | 'social_boost' | 'seo_fix';
   currentValue: string;
-  proposedValue: string; // for 'offer': JSON {discount, ebayItemId, currentPrice}; for 'relist': ebayItemId
+  proposedValue: string; // for JSON payload if needed
   rationale: string;
   impact: 'normal' | 'high';
   actionable: boolean;
@@ -170,6 +170,48 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         impact: 'normal',
         actionable: false,
       });
+    }
+  }
+
+  // --- SEO Doctor ---
+  // If views are very low or 0, check for missing item specifics
+  if (snapshot.today.watchCount === 0 || visibilityDropped) {
+    if (snapshot.categoryId) {
+      try {
+        const { analyzeSeoSpecifics } = await import('./ebaySeoDoctor');
+        const seoResult = await analyzeSeoSpecifics(accessToken, snapshot.ebayItemId, snapshot.categoryId);
+        if (seoResult && seoResult.missingRequired.length > 0) {
+          proposals.push({
+            field: 'seo_fix',
+            currentValue: `${seoResult.currentAspectsCount} compilate`,
+            proposedValue: `Aggiungi ${seoResult.missingRequired.length} obbligatorie`,
+            rationale: `⚠️ Ti mancano le seguenti specifiche OBBLIGATORIE: ${seoResult.missingRequired.join(', ')}. eBay nasconde le inserzioni senza questi campi dai filtri di ricerca!`,
+            impact: 'high',
+            actionable: false, // For now manual action required
+          });
+        }
+      } catch (e) {
+        console.warn('SEO Doctor failed:', e);
+      }
+    }
+  }
+
+  // --- Social Booster ---
+  // If there's some sales history but currently slow, or user has social enabled
+  if (hasEnoughHistory && recentSales === 0) {
+    try {
+      const { generateSocialPost } = await import('./ebaySocial');
+      const post = generateSocialPost(snapshot.title, snapshot.today.price, snapshot.categoryId, snapshot.ebayItemId, []);
+      proposals.push({
+        field: 'social_boost',
+        currentValue: 'Traffico solo da eBay',
+        proposedValue: 'Genera Post Social (Facebook/IG)',
+        rationale: `Le visualizzazioni organiche sono ferme. Condividi questo annuncio sui Social per portare traffico esterno (eBay Cassini premia molto chi porta traffico da fuori!).`,
+        impact: 'normal',
+        actionable: true,
+      });
+    } catch (e) {
+      console.warn('Social Booster failed:', e);
     }
   }
 
