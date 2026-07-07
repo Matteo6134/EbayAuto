@@ -30,7 +30,13 @@ export async function reviseListingField(accessToken: string, itemId: string, fi
   const parsed = parser.parse(xml);
   const ack = parsed?.ReviseItemResponse?.Ack;
   if (ack !== 'Success' && ack !== 'Warning') {
-    const message = parsed?.ReviseItemResponse?.Errors?.LongMessage ?? 'risposta eBay non valida';
+    const errors = parsed?.ReviseItemResponse?.Errors;
+    let message = 'risposta eBay non valida';
+    if (Array.isArray(errors)) {
+      message = errors.map((e: any) => e.LongMessage || e.ShortMessage).join(' | ');
+    } else if (errors) {
+      message = errors.LongMessage || errors.ShortMessage || JSON.stringify(errors);
+    }
     throw new Error(`ReviseItem ha restituito un errore: ${message}`);
   }
 }
