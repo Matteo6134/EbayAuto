@@ -30,6 +30,7 @@ export function buildAuthorizeUrl(state: string): string {
     redirect_uri: ruName,
     scope: OAUTH_SCOPES,
     state,
+    prompt: 'login',
   });
   return `https://auth.ebay.com/oauth2/authorize?${params.toString()}`;
 }
