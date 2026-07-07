@@ -1,4 +1,4 @@
-import { getMarketAveragePrice } from './marketAnalysis';
+import { getMarketInsights } from './marketAnalysis';
 
 export interface MetricPoint {
   metricDate: string;
@@ -37,18 +37,17 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
   const recentSales = snapshot.history.reduce((sum, h) => sum + h.quantitySold, 0) + snapshot.today.quantitySold;
   const hasEnoughHistory = snapshot.history.length >= 3;
 
-  // Analisi di Mercato (Giorno 1 o in caso di crollo vendite)
-  const marketAverage = await getMarketAveragePrice(accessToken, snapshot.title, snapshot.categoryId);
-  if (marketAverage !== null) {
-    const highThreshold = marketAverage * 1.05;
-    const lowThreshold = marketAverage * 0.85;
+  const insights = await getMarketInsights(accessToken, snapshot.title, snapshot.categoryId);
+  if (insights.averagePrice !== null) {
+    const highThreshold = insights.averagePrice * 1.05;
+    const lowThreshold = insights.averagePrice * 0.85;
 
     if (snapshot.today.price > highThreshold) {
       proposals.push({
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),
-        proposedValue: marketAverage.toFixed(2),
-        rationale: `Il mercato vende oggetti simili a una media di ${marketAverage.toFixed(2)}€. Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è fuori mercato. Allinealo per sbloccare le vendite!`,
+        proposedValue: insights.averagePrice.toFixed(2),
+        rationale: `Il mercato vende oggetti simili a una media di ${insights.averagePrice.toFixed(2)}€. Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è fuori mercato. Allinealo per sbloccare le vendite!`,
         impact: 'high',
         actionable: true,
       });
@@ -56,8 +55,8 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
       proposals.push({
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),
-        proposedValue: (marketAverage * 0.95).toFixed(2),
-        rationale: `Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è molto inferiore alla media di mercato (${marketAverage.toFixed(2)}€). Puoi permetterti di alzarlo e guadagnare di più!`,
+        proposedValue: (insights.averagePrice * 0.95).toFixed(2),
+        rationale: `Il tuo prezzo (${snapshot.today.price.toFixed(2)}€) è molto inferiore alla media di mercato (${insights.averagePrice.toFixed(2)}€). Puoi permetterti di alzarlo e guadagnare di più!`,
         impact: 'high',
         actionable: true,
       });
@@ -66,7 +65,7 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),
         proposedValue: snapshot.today.price.toFixed(2),
-        rationale: `Il tuo prezzo è perfettamente in linea con la media di mercato attuale (${marketAverage.toFixed(2)}€). Nessuna modifica necessaria.`,
+        rationale: `Il tuo prezzo è perfettamente in linea con la media di mercato attuale (${insights.averagePrice.toFixed(2)}€). Nessuna modifica necessaria.`,
         impact: 'normal',
         actionable: false,
       });
@@ -76,15 +75,25 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
   const noInterestAtAll = snapshot.today.watchCount === 0;
 
   if (noInterestAtAll && recentSales === 0) {
-    proposals.push({
-      field: 'category',
-      currentValue: snapshot.categoryId ?? 'sconosciuta',
-      proposedValue: 'rivedi manualmente la categoria e le keyword del titolo',
-      rationale: `Nessun interesse (0 osservatori oggi) e nessuna vendita. Se l'oggetto è online da molto, la categoria o il titolo potrebbero essere errati.`,
-      impact: 'high',
-      actionable: false,
-    });
-    // Continuiamo l'analisi per vedere se proporre anche altro
+    if (insights.suggestedCategoryId && insights.suggestedCategoryId !== snapshot.categoryId) {
+      proposals.push({
+        field: 'category',
+        currentValue: snapshot.categoryId ?? 'sconosciuta',
+        proposedValue: insights.suggestedCategoryId,
+        rationale: `Nessun interesse riscontrato. L'analisi dei top seller suggerisce che la categoria giusta per questo prodotto è la ${insights.suggestedCategoryId}. Allineati alla concorrenza per farti trovare!`,
+        impact: 'high',
+        actionable: true,
+      });
+    } else {
+      proposals.push({
+        field: 'category',
+        currentValue: snapshot.categoryId ?? 'sconosciuta',
+        proposedValue: 'rivedi manualmente',
+        rationale: `Nessun interesse (0 osservatori oggi) e nessuna vendita. Anche il mercato fatica a capire la categoria esatta per questo prodotto.`,
+        impact: 'high',
+        actionable: false,
+      });
+    }
   }
 
   const visibilityDropped = (avgWatch > 0 && snapshot.today.watchCount < avgWatch * 0.7) || (snapshot.today.watchCount === 0 && avgWatch === 0);
@@ -98,6 +107,15 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         proposedValue: `${proposedRate}%`,
         rationale: `Scarso interesse: oggi ${snapshot.today.watchCount} osservatori. Un piccolo boost alle ads può aiutare l'algoritmo di eBay.`,
         impact: 'normal',
+        actionable: true,
+      });
+    } else if (insights.suggestedTitle) {
+      proposals.push({
+        field: 'title',
+        currentValue: snapshot.title,
+        proposedValue: insights.suggestedTitle,
+        rationale: `Attenzione scarsa o in calo. Ho generato un nuovo titolo mixando le keyword esatte usate dai concorrenti più popolari per spingere la SEO al massimo!`,
+        impact: 'high',
         actionable: true,
       });
     } else {

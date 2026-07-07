@@ -1,11 +1,11 @@
 import { XMLParser } from 'fast-xml-parser';
 
-export async function reviseListingPrice(accessToken: string, itemId: string, newPrice: number): Promise<void> {
+export async function reviseListingField(accessToken: string, itemId: string, fieldXml: string): Promise<void> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <Item>
     <ItemID>${itemId}</ItemID>
-    <StartPrice>${newPrice.toFixed(2)}</StartPrice>
+    ${fieldXml}
   </Item>
 </ReviseItemRequest>`;
 
@@ -43,7 +43,15 @@ export async function applyProposal(
 ): Promise<void> {
   switch (field) {
     case 'price':
-      await reviseListingPrice(accessToken, itemId, Number(proposedValue));
+      await reviseListingField(accessToken, itemId, `<StartPrice>${Number(proposedValue).toFixed(2)}</StartPrice>`);
+      return;
+    case 'title':
+      // limit title to 80 chars
+      const newTitle = proposedValue.substring(0, 80).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await reviseListingField(accessToken, itemId, `<Title>${newTitle}</Title>`);
+      return;
+    case 'category':
+      await reviseListingField(accessToken, itemId, `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`);
       return;
     default:
       throw new Error(`Applicazione automatica non supportata per il campo "${field}"`);

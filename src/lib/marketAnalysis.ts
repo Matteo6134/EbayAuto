@@ -7,38 +7,47 @@ export function extractKeywords(title: string): string {
   return words.slice(0, 5).join(' ');
 }
 
-export async function getMarketAveragePrice(accessToken: string, title: string, categoryId: string | null): Promise<number | null> {
+export interface MarketInsights {
+  averagePrice: number | null;
+  suggestedCategoryId: string | null;
+  suggestedTitle: string | null;
+}
+
+export async function getMarketInsights(accessToken: string, title: string, categoryId: string | null): Promise<MarketInsights> {
   const query = extractKeywords(title);
-  if (!query) return null;
+  const defaultInsights: MarketInsights = { averagePrice: null, suggestedCategoryId: null, suggestedTitle: null };
+  if (!query) return defaultInsights;
 
   let url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=50`;
-  if (categoryId) {
-    url += `&category_ids=${categoryId}`;
-  }
+  // Rimuoviamo il filtro per category_ids per poter capire in quali categorie postano i competitor
+  // se usiamo sempre la nostra potremmo non scoprire mai se è sbagliata!
 
   const res = await fetch(url, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
-      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_IT', // Assumiamo mercato italiano per ora
-      'X-EBAY-C-ENDUSERCTX': 'affiliateCampaignId=<ePNCampaignId>,affiliateReferenceId=<referenceId>' // non strettamente necessario ma buona pratica
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_IT', 
+      'X-EBAY-C-ENDUSERCTX': 'affiliateCampaignId=<ePNCampaignId>,affiliateReferenceId=<referenceId>'
     }
   });
 
   if (!res.ok) {
     console.error(`Ricerca mercato eBay fallita: ${res.status}`);
-    return null;
+    return defaultInsights;
   }
 
   const data = await res.json();
   if (!data.itemSummaries || data.itemSummaries.length === 0) {
-    return null;
+    return defaultInsights;
   }
 
   let total = 0;
   let count = 0;
+  const categoryCounts: Record<string, number> = {};
+  const wordCounts: Record<string, number> = {};
 
   for (const item of data.itemSummaries) {
+    // Media Prezzi
     const priceStr = item.price?.value;
     if (priceStr) {
       const price = parseFloat(priceStr);
@@ -47,8 +56,52 @@ export async function getMarketAveragePrice(accessToken: string, title: string, 
         count++;
       }
     }
+
+    // Identificazione Categorie
+    const cats = item.categories;
+    if (cats && cats.length > 0) {
+      const mainCat = cats[0].categoryId;
+      categoryCounts[mainCat] = (categoryCounts[mainCat] || 0) + 1;
+    }
+
+    // Estrazione Keyword (Titolo)
+    if (item.title) {
+      const itemWords = item.title.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter((w: string) => w.length > 2);
+      for (const w of itemWords) {
+        wordCounts[w] = (wordCounts[w] || 0) + 1;
+      }
+    }
   }
 
-  if (count === 0) return null;
-  return Math.round((total / count) * 100) / 100;
+  // Calcolo Prezzo Medio
+  const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
+
+  // Calcolo Categoria Suggerita (quella più frequente)
+  let bestCategory = null;
+  let maxCatCount = 0;
+  for (const cat in categoryCounts) {
+    if (categoryCounts[cat] > maxCatCount) {
+      maxCatCount = categoryCounts[cat];
+      bestCategory = cat;
+    }
+  }
+
+  // Generazione Titolo (Unione delle 10-12 keyword più usate)
+  let suggestedTitle = null;
+  const sortedWords = Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  if (sortedWords.length > 0) {
+    let newTitle = '';
+    for (const w of sortedWords) {
+      if ((newTitle.length + w.length + 1) > 80) break;
+      newTitle += (newTitle ? ' ' : '') + w;
+    }
+    // Capitalize first letters for better visual
+    suggestedTitle = newTitle.replace(/\b\w/g, l => l.toUpperCase());
+  }
+
+  return {
+    averagePrice,
+    suggestedCategoryId: bestCategory,
+    suggestedTitle
+  };
 }
