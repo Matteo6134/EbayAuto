@@ -80,6 +80,7 @@ export async function getActiveListings(accessToken: string): Promise<EbayActive
 
 const SNAPSHOT_REQUEST_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
   <ActiveList>
     <Sort>TimeLeft</Sort>
     <Pagination>
@@ -125,13 +126,16 @@ export async function getSellingSnapshot(accessToken: string): Promise<EbaySelli
   }
 
   const items = toArray(parsed?.GetMyeBaySellingResponse?.ActiveList?.ItemArray?.Item);
-  const listings: EbaySellingSnapshotItem[] = items.map((item: any) => ({
-    itemId: String(item.ItemID),
-    title: String(item.Title),
-    categoryId: String(item.PrimaryCategory?.CategoryID ?? ''),
-    watchCount: Number(item.WatchCount ?? 0),
-    price: Number(item.StartPrice ?? 0),
-  }));
+  const listings: EbaySellingSnapshotItem[] = items.map((item: any) => {
+    const price = item.SellingStatus?.CurrentPrice ?? item.BuyItNowPrice ?? item.StartPrice ?? 0;
+    return {
+      itemId: String(item.ItemID),
+      title: String(item.Title),
+      categoryId: String(item.PrimaryCategory?.CategoryID ?? ''),
+      watchCount: Number(item.WatchCount ?? 0),
+      price: Number(price),
+    };
+  });
 
   const transactions = toArray(parsed?.GetMyeBaySellingResponse?.SoldList?.OrderTransactionArray?.OrderTransaction);
   const soldByItemId = new Map<string, { quantitySold: number; revenue: number }>();
