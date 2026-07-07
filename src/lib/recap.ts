@@ -17,7 +17,7 @@ export function buildDailySummaryText(listings: ListingRecapData[]): string {
             ((listing.today.watchCount - listing.avgWatch) / listing.avgWatch) * 100
           )}%`
         : 'n/d';
-    const base = `📊 ${listing.title} — oggi: ${listing.today.watchCount} watcher (${trend} vs media), ${listing.today.quantitySold} venduti`;
+    const base = `📊 ${listing.title} — oggi: ${listing.today.watchCount} osservatori (${trend} vs media), ${listing.today.quantitySold} venduti`;
     const notes = listing.informationalNotes.map((note) => `   ⚠️ ${note}`).join('\n');
     return notes ? `${base}\n${notes}` : base;
   });

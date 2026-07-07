@@ -73,21 +73,22 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
     }
   }
 
-  const noInterestAtAll = avgWatch > 0 ? snapshot.today.watchCount < avgWatch * 0.3 : snapshot.today.watchCount === 0;
+  const noInterestAtAll = snapshot.today.watchCount === 0;
 
-  if (hasEnoughHistory && noInterestAtAll && recentSales === 0) {
+  if (noInterestAtAll && recentSales === 0) {
     proposals.push({
       field: 'category',
       currentValue: snapshot.categoryId ?? 'sconosciuta',
       proposedValue: 'rivedi manualmente la categoria e le keyword del titolo',
-      rationale: `Nessun interesse (oggi ${snapshot.today.watchCount} watcher, media recente ${avgWatch.toFixed(1)}) e nessuna vendita da almeno ${snapshot.history.length} giorni.`,
+      rationale: `Nessun interesse (0 osservatori oggi) e nessuna vendita. Se l'oggetto è online da molto, la categoria o il titolo potrebbero essere errati.`,
       impact: 'high',
       actionable: false,
     });
-    return proposals;
+    // Continuiamo l'analisi per vedere se proporre anche altro
   }
 
-  const visibilityDropped = avgWatch > 0 && snapshot.today.watchCount < avgWatch * 0.7;
+  const visibilityDropped = (avgWatch > 0 && snapshot.today.watchCount < avgWatch * 0.7) || (snapshot.today.watchCount === 0 && avgWatch === 0);
+  
   if (visibilityDropped) {
     if (snapshot.today.adRatePercent != null) {
       const proposedRate = Math.min(snapshot.today.adRatePercent + 2, 20);
@@ -95,7 +96,7 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         field: 'ad_rate',
         currentValue: `${snapshot.today.adRatePercent}%`,
         proposedValue: `${proposedRate}%`,
-        rationale: `Visite in calo: oggi ${snapshot.today.watchCount} watcher contro una media di ${avgWatch.toFixed(1)}.`,
+        rationale: `Scarso interesse: oggi ${snapshot.today.watchCount} osservatori. Un piccolo boost alle ads può aiutare l'algoritmo di eBay.`,
         impact: 'normal',
         actionable: true,
       });
@@ -103,8 +104,8 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
       proposals.push({
         field: 'title',
         currentValue: snapshot.title,
-        proposedValue: 'rivedi il titolo con keyword più cercate',
-        rationale: `Visite in calo: oggi ${snapshot.today.watchCount} watcher contro una media di ${avgWatch.toFixed(1)}.`,
+        proposedValue: 'aggiungi keyword popolari o dettagli tecnici',
+        rationale: `Attenzione scarsa o in calo (oggi ${snapshot.today.watchCount} osservatori). Rivedi il titolo per migliorare la SEO su eBay.`,
         impact: 'normal',
         actionable: false,
       });
@@ -119,7 +120,7 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
         field: 'price',
         currentValue: snapshot.today.price.toFixed(2),
         proposedValue: discountedPrice.toFixed(2),
-        rationale: `Interesse presente (${snapshot.today.watchCount} watcher) ma nessuna vendita da almeno ${snapshot.history.length} giorni: sconto del 10% proposto.`,
+        rationale: `Interesse presente (${snapshot.today.watchCount} osservatori) ma nessuna vendita da almeno ${snapshot.history.length} giorni: sconto del 10% consigliato.`,
         impact: 'normal',
         actionable: true,
       });
@@ -137,7 +138,7 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
       field: 'ad_rate',
       currentValue: `${snapshot.today.adRatePercent}%`,
       proposedValue: `${Math.max(snapshot.today.adRatePercent - 2, 0)}%`,
-      rationale: 'La % ads è stata aumentata di recente ma le visite non sono aumentate in proporzione: valuta di ridurla.',
+      rationale: 'La % ads è stata aumentata di recente ma gli osservatori non sono aumentati in proporzione: valuta di ridurla.',
       impact: 'normal',
       actionable: true,
     });
