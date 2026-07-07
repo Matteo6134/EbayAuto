@@ -67,6 +67,30 @@ describe('GET /api/ebay/oauth/callback', () => {
     expect(sendMessage).toHaveBeenCalledWith(210039451, expect.stringContaining('collegato'));
   });
 
+  it('ritorna 500 con il messaggio specifico se il salvataggio dei token fallisce', async () => {
+    const builder: any = {
+      from: () => builder,
+      select: () => builder,
+      update: () => builder,
+      eq: () => builder,
+      maybeSingle: () => Promise.resolve({ data: { chat_id: 210039451 }, error: null }),
+      then: (resolve: any) => resolve({ data: null, error: { message: 'colonna mancante' } }),
+    };
+    vi.mocked(getSupabaseClient).mockReturnValue(builder);
+    vi.mocked(exchangeCodeForTokens).mockResolvedValue({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      accessTokenExpiresAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const res = await GET(makeRequest('?code=abc123&state=known-state'));
+    const body = await res.text();
+
+    expect(res.status).toBe(500);
+    expect(body).toContain('colonna mancante');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('ritorna 500 e non manda messaggi se lo scambio del token fallisce', async () => {
     vi.mocked(getSupabaseClient).mockReturnValue(fakeSupabaseForCallback({ data: { chat_id: 210039451 }, error: null }));
     vi.mocked(exchangeCodeForTokens).mockRejectedValue(new Error('scambio fallito'));

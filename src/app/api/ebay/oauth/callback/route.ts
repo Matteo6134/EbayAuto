@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const tokens = await exchangeCodeForTokens(code);
-    await supabase
+    const { error: updateError } = await supabase
       .from('ebay_connection')
       .update({
         access_token: tokens.accessToken,
@@ -43,10 +43,14 @@ export async function GET(req: NextRequest) {
       })
       .eq('chat_id', connection.chat_id);
 
+    if (updateError) {
+      throw new Error(`Salvataggio token fallito: ${updateError.message}`);
+    }
+
     await sendMessage(connection.chat_id, '✅ Account eBay collegato con successo. Ora puoi usare /scanproducts.');
   } catch (err) {
     console.error('eBay OAuth callback: errore durante lo scambio del token', err);
-    return htmlResponse('Errore durante il collegamento con eBay. Riprova con /connectebay su Telegram.', 500);
+    return htmlResponse(`Errore durante il collegamento con eBay: ${(err as Error).message}`, 500);
   }
 
   return htmlResponse('Account eBay collegato con successo. Puoi tornare su Telegram.', 200);
