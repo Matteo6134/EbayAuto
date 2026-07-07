@@ -41,6 +41,31 @@ export async function reviseListingField(accessToken: string, itemId: string, fi
   }
 }
 
+async function getExistingConditionId(accessToken: string, itemId: string): Promise<string | null> {
+  const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+</GetItemRequest>`;
+
+  const res = await fetch('https://api.ebay.com/ws/api.dll', {
+    method: 'POST',
+    headers: {
+      'X-EBAY-API-SITEID': '101',
+      'X-EBAY-API-COMPATIBILITY-LEVEL': '1155',
+      'X-EBAY-API-CALL-NAME': 'GetItem',
+      'X-EBAY-API-IAF-TOKEN': accessToken,
+      'Content-Type': 'text/xml',
+    },
+    body: xmlBody,
+  });
+
+  if (!res.ok) return null;
+  const xml = await res.text();
+  const parser = new XMLParser();
+  const parsed = parser.parse(xml);
+  return parsed?.GetItemResponse?.Item?.ConditionID ? String(parsed.GetItemResponse.Item.ConditionID) : null;
+}
+
 export async function applyProposal(
   accessToken: string,
   itemId: string,
@@ -57,7 +82,13 @@ export async function applyProposal(
       await reviseListingField(accessToken, itemId, `<Title>${newTitle}</Title>`);
       return;
     case 'category':
-      await reviseListingField(accessToken, itemId, `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`);
+      let catXml = `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`;
+      // Changing category often drops the ConditionID which is mandatory for many categories, so we must re-supply it
+      const conditionId = await getExistingConditionId(accessToken, itemId);
+      if (conditionId) {
+        catXml += `\n    <ConditionID>${conditionId}</ConditionID>`;
+      }
+      await reviseListingField(accessToken, itemId, catXml);
       return;
     default:
       throw new Error(`Applicazione automatica non supportata per il campo "${field}"`);
