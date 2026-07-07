@@ -23,9 +23,9 @@ export interface ListingSnapshot {
 }
 
 export interface ProposalDraft {
-  field: 'title' | 'price' | 'category' | 'ad_rate' | 'offer';
+  field: 'title' | 'price' | 'category' | 'ad_rate' | 'offer' | 'relist';
   currentValue: string;
-  proposedValue: string; // for 'offer': JSON with {discount, ebayItemId, currentPrice}
+  proposedValue: string; // for 'offer': JSON {discount, ebayItemId, currentPrice}; for 'relist': ebayItemId
   rationale: string;
   impact: 'normal' | 'high';
   actionable: boolean;
@@ -41,6 +41,41 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
   const avgWatch = average(snapshot.history.map((h) => h.watchCount));
   const recentSales = snapshot.history.reduce((sum, h) => sum + h.quantitySold, 0) + snapshot.today.quantitySold;
   const hasEnoughHistory = snapshot.history.length >= 3;
+  const isCompletelyDead = hasEnoughHistory && recentSales === 0 && snapshot.today.watchCount === 0 && (snapshot.today.impressionCount ?? 0) === 0;
+
+  // --- Ghost Check: verify listing is actually indexed by eBay Cassini ---
+  if (isCompletelyDead) {
+    try {
+      const { checkListingIndexed } = await import('./ebayLazarus');
+      const ghostResult = await checkListingIndexed(accessToken, snapshot.title);
+      if (!ghostResult.isIndexed) {
+        proposals.push({
+          field: 'relist',
+          currentValue: snapshot.ebayItemId,
+          proposedValue: snapshot.ebayItemId,
+          rationale: `☠️ SHADOW BAN RILEVATO: Una ricerca sul tuo titolo esatto restituisce 0 risultati su eBay. L'inserzione non è indicizzata da Cassini — modificarla non serve a nulla. Attivare il Modulo Lazarus per ricominciare da zero con un nuovo ID!`,
+          impact: 'high',
+          actionable: true,
+        });
+        return proposals; // Stop here, no point analyzing a ghost listing
+      }
+    } catch (ghostErr) {
+      console.warn('Ghost check failed, proceeding normally:', ghostErr);
+    }
+  }
+
+  // --- Lazarus: relist if dead for 30+ days with no impressions ---
+  if (isCompletelyDead && snapshot.history.length >= 30) {
+    proposals.push({
+      field: 'relist',
+      currentValue: snapshot.ebayItemId,
+      proposedValue: snapshot.ebayItemId,
+      rationale: `💀 Inserzione clinicamente morta: ${snapshot.history.length} giorni con 0 osservatori, 0 vendite, 0 impressioni. L'algoritmo Cassini l'ha penalizzata permanentemente. Attivo il Modulo Lazarus: chiudo il vecchio annuncio e lo riapro come nuovo per ottenere il badge "Appena messo in vendita" e la spinta di visibilità iniziale!`,
+      impact: 'high',
+      actionable: true,
+    });
+    return proposals; // Lazarus supersedes all other proposals
+  }
 
   const insights = await getMarketInsights(accessToken, snapshot.title, snapshot.categoryId);
   if (insights.averagePrice !== null) {

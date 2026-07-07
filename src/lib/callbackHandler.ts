@@ -170,6 +170,40 @@ async function handleProposalCallback(
       };
     }
 
+    // Special handling for 'relist' (Lazarus module) — EndItem + AddFixedPriceItem
+    if (proposal.field === 'relist') {
+      const { resurrectionListing } = await import('./ebayLazarus');
+      const result = await resurrectionListing(tokens.accessToken, listing.ebay_item_id);
+
+      if (!result.success) {
+        await supabase.from('proposals').update({ status: 'failed' }).eq('id', proposalId);
+        return {
+          chatId: listing.chat_id,
+          text: `⚠️ Lazarus fallito: ${result.error}`,
+        };
+      }
+
+      // Update watched_listings with new eBay item ID
+      await supabase
+        .from('watched_listings')
+        .update({ ebay_item_id: result.newItemId! })
+        .eq('id', proposal.listing_id);
+
+      await supabase.from('proposals').update({ status: 'applied' }).eq('id', proposalId);
+      await supabase.from('change_log').insert({
+        listing_id: proposal.listing_id,
+        proposal_id: proposalId,
+        field: 'relist',
+        previous_value: listing.ebay_item_id,
+        new_value: result.newItemId!,
+      });
+
+      return {
+        chatId: listing.chat_id,
+        text: `🧟 Lazarus completato! "${listing.title}" è risorta con un nuovo ID: ${result.newItemId}. Nelle prossime 24-48h riceverà la spinta di visibilità da Cassini per le nuove inserzioni!`,
+      };
+    }
+
     await applyProposal(tokens.accessToken, listing.ebay_item_id, proposal.field, proposal.proposed_value);
 
     // Sync the change back to our local watched_listings record
