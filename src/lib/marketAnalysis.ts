@@ -14,6 +14,8 @@ export interface MarketInsights {
   suggestedTitle: string | null;
   /** True when the sample of external comparables was too small (<3) to trust the average. */
   insufficientData: boolean;
+  /** Number of external competitor listings used to compute averagePrice (0 when insufficient/unavailable). */
+  competitorCount: number;
 }
 
 /** Minimum number of external competitor items required before trusting an average price. */
@@ -44,6 +46,7 @@ export async function getMarketInsights(
     suggestedCategoryName: null,
     suggestedTitle: null,
     insufficientData: true,
+    competitorCount: 0,
   };
 
   const query = extractKeywords(title);
@@ -147,6 +150,7 @@ export async function getMarketInsights(
       suggestedCategoryName: bestCategoryName,
       suggestedTitle,
       insufficientData: true,
+      competitorCount: count,
     };
   }
 
@@ -158,5 +162,6 @@ export async function getMarketInsights(
     suggestedCategoryName: bestCategoryName,
     suggestedTitle,
     insufficientData: false,
+    competitorCount: count,
   };
 }

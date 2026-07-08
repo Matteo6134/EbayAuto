@@ -84,6 +84,18 @@ export async function getTrafficReport(
   const metricKeys: string[] = (data.header?.metrics ?? []).map((m: any) => String(m.key ?? ''));
   const records: any[] = data.records ?? [];
 
+  // Calibration log: production CTR values look suspiciously integer ("1",
+  // "0") — print one real raw sample (name=value pairs, before any scaling)
+  // so we can confirm in Vercel logs whether CLICK_THROUGH_RATE is really a
+  // 0-1 fraction or already a percentage. Intentionally NOT changing the
+  // scaling logic below until we have that sample.
+  if (records.length > 0) {
+    const firstRecordRaw = (records[0].metricValues ?? [])
+      .map((metricValue: any, index: number) => `${metricKeys[index] ?? `metric${index}`}=${metricValue?.value ?? ''}`)
+      .join(', ');
+    console.log(`Analytics API calibrazione CTR: primo record grezzo -> ${firstRecordRaw}`);
+  }
+
   if (records.length === 0) {
     console.error(
       `Analytics API: nessun record nella risposta (chiavi presenti: ${Object.keys(data ?? {}).join(', ')})`

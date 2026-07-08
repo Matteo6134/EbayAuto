@@ -189,4 +189,85 @@ describe('GET /api/cron/daily-analysis', () => {
     );
     expect(console.error).toHaveBeenCalled();
   });
+
+  it('include impression/click/CTR nel recap quando i dati Analytics sono disponibili, con trend vs ieri', async () => {
+    vi.mocked(collectDailyMetrics).mockResolvedValue({ collected: 1, errors: [] });
+    vi.mocked(generateAndSendProposals).mockResolvedValue({ sent: 0, informational: [] });
+    const supabase = createFakeSupabase([
+      { data: [{ id: 1, title: 'Mercedes W177' }], error: null }, // watched_listings attivi
+      { data: { refresh_token: 'stored-refresh-token' }, error: null }, // ebay_connection
+      {
+        data: [
+          {
+            metric_date: '2026-07-07',
+            watch_count: 14,
+            quantity_sold: 0,
+            revenue: 0,
+            price: 18,
+            ad_rate_percent: null,
+            impression_count: 200,
+            click_count: 40,
+            click_through_rate: 1.2,
+          },
+          {
+            metric_date: TODAY,
+            watch_count: 16,
+            quantity_sold: 0,
+            revenue: 0,
+            price: 18,
+            ad_rate_percent: null,
+            impression_count: 224,
+            click_count: 53,
+            click_through_rate: 1.0,
+          },
+        ],
+        error: null,
+      }, // storico daily_metrics del prodotto 1 (ieri + oggi, entrambi con analytics)
+    ]);
+    vi.mocked(getSupabaseClient).mockReturnValue(supabase);
+
+    const res = await GET(makeRequest('Bearer cron-secret'));
+
+    expect(res.status).toBe(200);
+    expect(sendMessage).toHaveBeenCalledWith(
+      210039451,
+      expect.stringContaining('👁 224 impression · 53 click (CTR 1.0%) · 16 osservatori · 0 venduti (impression +12% vs ieri)'),
+      DASHBOARD_MARKUP
+    );
+  });
+
+  it('ricade sulla riga solo-osservatori nel recap quando i dati Analytics non sono disponibili', async () => {
+    vi.mocked(collectDailyMetrics).mockResolvedValue({ collected: 1, errors: [] });
+    vi.mocked(generateAndSendProposals).mockResolvedValue({ sent: 0, informational: [] });
+    const supabase = createFakeSupabase([
+      { data: [{ id: 1, title: 'Prodotto Senza Analytics' }], error: null },
+      { data: { refresh_token: 'stored-refresh-token' }, error: null },
+      {
+        data: [
+          {
+            metric_date: TODAY,
+            watch_count: 5,
+            quantity_sold: 0,
+            revenue: 0,
+            price: 18,
+            ad_rate_percent: null,
+            impression_count: null,
+            click_count: null,
+            click_through_rate: null,
+          },
+        ],
+        error: null,
+      },
+    ]);
+    vi.mocked(getSupabaseClient).mockReturnValue(supabase);
+
+    const res = await GET(makeRequest('Bearer cron-secret'));
+
+    expect(res.status).toBe(200);
+    expect(sendMessage).toHaveBeenCalledWith(
+      210039451,
+      expect.stringContaining('5 osservatori (n/d vs media), 0 venduti'),
+      DASHBOARD_MARKUP
+    );
+  });
 });

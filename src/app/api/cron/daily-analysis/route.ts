@@ -6,6 +6,12 @@ import { sendMessage, getDashboardUrl } from '@/lib/telegram';
 import { buildDailySummaryText, type ListingRecapData } from '@/lib/recap';
 import { refreshAccessToken } from '@/lib/ebayOAuth';
 
+// Vercel Fluid compute allows up to 300s on this plan; the default (10s/60s
+// depending on plan) isn't enough headroom once we're refreshing tokens,
+// hitting Analytics/Browse/Taxonomy APIs and sending Telegram messages for
+// every watched listing in a single run.
+export const maxDuration = 300;
+
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   const expected = `Bearer ${process.env.CRON_SECRET}`;
@@ -103,11 +109,23 @@ export async function GET(req: NextRequest) {
       console.error(`Cron giornaliero: generazione proposte fallita per il prodotto ${listing.title}`, err);
     }
 
+    const yesterdayRow = pastRows[pastRows.length - 1];
+    const traffic =
+      today.impression_count != null && today.click_count != null && today.click_through_rate != null
+        ? {
+            impressionCount: today.impression_count,
+            clickCount: today.click_count,
+            clickThroughRate: today.click_through_rate,
+            previousImpressionCount: yesterdayRow?.impression_count ?? null,
+          }
+        : null;
+
     recapData.push({
       title: listing.title,
       today: { watchCount: today.watch_count, quantitySold: today.quantity_sold, revenue: today.revenue },
       avgWatch,
       informationalNotes: informational,
+      traffic,
     });
   }
 

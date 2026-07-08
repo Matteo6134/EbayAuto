@@ -43,4 +43,38 @@ describe('handleRecap', () => {
 
     expect(result.text).toContain('Nessuna metrica ancora raccolta per questo prodotto');
   });
+
+  it('include impression/click/CTR quando i dati Analytics sono disponibili', async () => {
+    const supabase = createFakeSupabase([
+      { data: { id: 5, title: 'Mercedes W177' }, error: null },
+      {
+        data: [
+          {
+            metric_date: '2026-07-01',
+            watch_count: 10,
+            quantity_sold: 0,
+            revenue: 0,
+            impression_count: 200,
+            click_count: 40,
+            click_through_rate: 1.2,
+          },
+          {
+            metric_date: '2026-07-02',
+            watch_count: 16,
+            quantity_sold: 0,
+            revenue: 0,
+            impression_count: 224,
+            click_count: 53,
+            click_through_rate: 1.0,
+          },
+        ],
+        error: null,
+      },
+    ]);
+
+    const result = await handleRecap({ supabase, chatId: 1, args: '5' });
+
+    expect(result.text).toContain('👁 224 impression · 53 click (CTR 1.0%)');
+    expect(result.text).toContain('(impression +12% vs ieri)');
+  });
 });

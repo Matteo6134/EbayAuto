@@ -23,6 +23,7 @@ const emptyInsights = {
   suggestedCategoryName: null,
   suggestedTitle: null,
   insufficientData: true,
+  competitorCount: 0,
 };
 
 function metric(overrides: Partial<MetricPoint> = {}): MetricPoint {
@@ -232,10 +233,271 @@ describe('analyzeListing', () => {
       suggestedCategoryName: null,
       suggestedTitle: null,
       insufficientData: true,
+      competitorCount: 0,
     });
 
     const result = await analyzeListing(snapshot(), FAKE_TOKEN);
 
     expect(result.some((p) => p.field === 'price')).toBe(false);
+  });
+
+  describe('CTR-based rules (B1)', () => {
+    it('alta visibilità, basso interesse: CTR basso con impression sufficienti genera una proposta titolo actionable con i numeri reali in italiano', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: null,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: 'Titolo Ottimizzato Dai Concorrenti',
+        insufficientData: true,
+        competitorCount: 0,
+      });
+
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({ watchCount: 10, impressionCount: 183, clickCount: 2, clickThroughRate: 1.0 }),
+          history: [metric({ watchCount: 10 }), metric({ watchCount: 10 })],
+        }),
+        FAKE_TOKEN
+      );
+
+      const titleProposal = result.find((p) => p.field === 'title');
+      expect(titleProposal).toBeDefined();
+      expect(titleProposal?.actionable).toBe(true);
+      expect(titleProposal?.proposedValue).toBe('Titolo Ottimizzato Dai Concorrenti');
+      expect(titleProposal?.rationale).toContain('183 impression');
+      expect(titleProposal?.rationale).toContain('1.0%');
+      // Solo una proposta titolo per prodotto per esecuzione
+      expect(result.filter((p) => p.field === 'title')).toHaveLength(1);
+    });
+
+    it('CTR basso senza titolo suggerito dal mercato resta informativo ma cita comunque i numeri reali', async () => {
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({ watchCount: 10, impressionCount: 200, clickCount: 2, clickThroughRate: 1.0 }),
+          history: [metric({ watchCount: 10 }), metric({ watchCount: 10 })],
+        }),
+        FAKE_TOKEN
+      );
+
+      const titleProposal = result.find((p) => p.field === 'title');
+      expect(titleProposal).toBeDefined();
+      expect(titleProposal?.actionable).toBe(false);
+      expect(titleProposal?.rationale).toContain('200 impression');
+      expect(titleProposal?.rationale).toContain('1.0%');
+    });
+
+    it('non genera la regola CTR se le impression sono sotto soglia (50)', async () => {
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({ watchCount: 10, impressionCount: 40, clickCount: 1, clickThroughRate: 1.0 }),
+        }),
+        FAKE_TOKEN
+      );
+
+      expect(result.some((p) => p.field === 'title')).toBe(false);
+    });
+
+    it('non genera alcuna regola CTR quando i dati Analytics sono null (no-op)', async () => {
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({ watchCount: 10, impressionCount: null, clickCount: null, clickThroughRate: null }),
+        }),
+        FAKE_TOKEN
+      );
+
+      expect(result.some((p) => p.field === 'title')).toBe(false);
+      expect(result.some((p) => p.field === 'price')).toBe(false);
+    });
+
+    it('buon interesse, nessuna vendita: CTR alto con impression sufficienti e mercato disponibile genera una proposta prezzo ancorata al mercato', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 100,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 8,
+      });
+
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({
+            watchCount: 1,
+            quantitySold: 0,
+            price: 120,
+            impressionCount: 183,
+            clickCount: 53,
+            clickThroughRate: 2.9,
+          }),
+          history: [metric({ watchCount: 1, quantitySold: 0 })],
+        }),
+        FAKE_TOKEN
+      );
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal).toBeDefined();
+      expect(priceProposal?.actionable).toBe(true);
+      expect(priceProposal?.proposedValue).toBe('105.00');
+      expect(priceProposal?.rationale).toContain('clicca');
+      expect(priceProposal?.rationale.toLowerCase()).toContain('vendit');
+    });
+
+    it('CTR alto ma nessuna vendita non genera proposta prezzo se il prezzo non è sopra la soglia di mercato', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 100,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 8,
+      });
+
+      const result = await analyzeListing(
+        snapshot({
+          today: metric({
+            watchCount: 1,
+            quantitySold: 0,
+            price: 100,
+            impressionCount: 183,
+            clickCount: 53,
+            clickThroughRate: 2.9,
+          }),
+          history: [metric({ watchCount: 1, quantitySold: 0 })],
+        }),
+        FAKE_TOKEN
+      );
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal?.actionable).toBe(false); // ramo "in linea col mercato"
+    });
+  });
+
+  describe('Prezzo ancorato al mercato (B3)', () => {
+    it('prezzo sopra mercato + interesse senza vendite (osservatori): propone di scendere a media*1.05', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 100,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 5,
+      });
+
+      const history = [
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+      ];
+      const result = await analyzeListing(
+        snapshot({ today: metric({ watchCount: 8, quantitySold: 0, price: 130 }), history }),
+        FAKE_TOKEN
+      );
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal).toBeDefined();
+      expect(priceProposal?.actionable).toBe(true);
+      expect(priceProposal?.proposedValue).toBe('105.00');
+      expect(priceProposal?.rationale).toContain('100.00');
+      expect(priceProposal?.rationale).toContain('5 concorrenti');
+    });
+
+    it('prezzo sotto mercato: propone di salire a media*0.95 con motivazione "margine sul tavolo"', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 100,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 5,
+      });
+
+      const result = await analyzeListing(snapshot({ today: metric({ price: 80 }) }), FAKE_TOKEN);
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal).toBeDefined();
+      expect(priceProposal?.actionable).toBe(true);
+      expect(priceProposal?.proposedValue).toBe('95.00');
+      expect(priceProposal?.rationale).toContain('margine sul tavolo');
+    });
+
+    it('dati di mercato insufficienti: la regola di mercato non emette nulla e il vecchio ramo prezzo/offerta gestisce il caso (l\'offerta ha priorità, comportamento preesistente)', async () => {
+      // NOTE: con hasEnoughHistory + watchCount>=3 + recentSales===0, la regola
+      // "Watcher Offer" (Negotiation API) ha sempre priorità sul fallback
+      // sconto 10% — è un comportamento preesistente e intenzionale (vedi test
+      // "l'offerta ha priorità sullo sconto prezzo" sopra), non introdotto da
+      // questa modifica. Qui verifichiamo solo che, quando il mercato è
+      // insufficiente, NON venga comunque emessa la proposta prezzo
+      // ancora-al-mercato (che richiede averagePrice non nullo).
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: null,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: true,
+        competitorCount: 0,
+      });
+
+      const history = [
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+      ];
+      const result = await analyzeListing(
+        snapshot({ today: metric({ watchCount: 8, quantitySold: 0, price: 20 }), history }),
+        FAKE_TOKEN
+      );
+
+      expect(result.some((p) => p.field === 'offer')).toBe(true);
+      const priceProposal = result.find((p) => p.field === 'price');
+      // Nessuna proposta prezzo ancorata al mercato (i dati sono insufficienti);
+      // l'unico prezzo possibile qui sarebbe il fallback -10%, che l'offerta
+      // preesistente sopprime by design.
+      expect(priceProposal).toBeUndefined();
+    });
+
+
+    it('applica il clamp di sicurezza: non propone mai una variazione di prezzo superiore al 30% in un colpo solo (sopra mercato)', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 100,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 5,
+      });
+
+      const history = [
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+        metric({ watchCount: 8, quantitySold: 0 }),
+      ];
+      // Prezzo attuale molto alto (500): media*1.05 = 105, ma il clamp lo limita a 500*0.7=350
+      const result = await analyzeListing(
+        snapshot({ today: metric({ watchCount: 8, quantitySold: 0, price: 500 }), history }),
+        FAKE_TOKEN
+      );
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal).toBeDefined();
+      expect(priceProposal?.proposedValue).toBe('350.00');
+    });
+
+    it('applica il clamp di sicurezza anche sotto mercato (non propone mai +30% in un colpo)', async () => {
+      vi.mocked(getMarketInsights).mockResolvedValue({
+        averagePrice: 1000,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+        suggestedTitle: null,
+        insufficientData: false,
+        competitorCount: 5,
+      });
+
+      // Prezzo attuale molto basso (10): media*0.95 = 950, ma il clamp lo limita a 10*1.3=13
+      const result = await analyzeListing(snapshot({ today: metric({ price: 10 }) }), FAKE_TOKEN);
+
+      const priceProposal = result.find((p) => p.field === 'price');
+      expect(priceProposal).toBeDefined();
+      expect(priceProposal?.proposedValue).toBe('13.00');
+    });
   });
 });
