@@ -37,7 +37,7 @@ describe('getTrafficReport', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('chiama l\'endpoint con il filtro corretto e converte CLICK_THROUGH_RATE da frazione a percentuale', async () => {
+  it('chiama l\'endpoint con il filtro corretto e calcola il CTR da click/impression', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -46,7 +46,6 @@ describe('getTrafficReport', () => {
           metrics: [
             { key: 'LISTING_IMPRESSION_TOTAL' },
             { key: 'LISTING_VIEWS_TOTAL' },
-            { key: 'CLICK_THROUGH_RATE' },
           ],
         },
         records: [
@@ -55,7 +54,6 @@ describe('getTrafficReport', () => {
             metricValues: [
               { applicable: true, value: '1000' },
               { applicable: true, value: '15' },
-              { applicable: true, value: '0.015' },
             ],
           },
         ],
@@ -67,6 +65,7 @@ describe('getTrafficReport', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const calledUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(calledUrl.searchParams.get('metric')).toBe('LISTING_IMPRESSION_TOTAL,LISTING_VIEWS_TOTAL');
     expect(calledUrl.searchParams.get('filter')).toMatch(/^date_range:\[\d{8}\.\.\d{8}\],listing_ids:\{123456789012\}$/);
 
     const data = result.get('123456789012');
@@ -74,8 +73,42 @@ describe('getTrafficReport', () => {
       itemId: '123456789012',
       impressionCount: 1000,
       clickCount: 15,
-      clickThroughRate: 1.5, // 0.015 -> 1.5%
+      clickThroughRate: 1.5, // 15/1000 calcolato da noi -> 1.5%
     });
+  });
+
+  it('CTR calcolato: 0 quando le impression sono 0, arrotondato a 2 decimali altrimenti', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        header: {
+          dimensionKeys: [{ key: 'LISTING' }],
+          metrics: [{ key: 'LISTING_IMPRESSION_TOTAL' }, { key: 'LISTING_VIEWS_TOTAL' }],
+        },
+        records: [
+          {
+            dimensionValues: [{ applicable: true, value: '111' }],
+            metricValues: [
+              { applicable: true, value: '0' },
+              { applicable: true, value: '0' },
+            ],
+          },
+          {
+            dimensionValues: [{ applicable: true, value: '222' }],
+            metricValues: [
+              { applicable: true, value: '184' },
+              { applicable: true, value: '53' },
+            ],
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getTrafficReport('token', ['111', '222']);
+
+    expect(result.get('111')?.clickThroughRate).toBe(0);
+    expect(result.get('222')?.clickThroughRate).toBe(28.8); // 53/184 = 28.80%
   });
 
   it('logga status e body e ritorna una mappa vuota (non-fatale) se la risposta non è ok', async () => {

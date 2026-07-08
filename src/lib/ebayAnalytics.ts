@@ -47,10 +47,10 @@ export async function getTrafficReport(
 
   const url = new URL('https://api.ebay.com/sell/analytics/v1/traffic_report');
   url.searchParams.set('dimension', 'LISTING');
-  url.searchParams.set(
-    'metric',
-    'LISTING_IMPRESSION_TOTAL,LISTING_VIEWS_TOTAL,CLICK_THROUGH_RATE'
-  );
+  // Nota: NON chiediamo CLICK_THROUGH_RATE a eBay — la loro metrica usa una
+  // base di calcolo diversa (es. 53 click su 184 impression risultava "1%")
+  // ed è fuorviante. Il CTR lo calcoliamo noi da click/impression.
+  url.searchParams.set('metric', 'LISTING_IMPRESSION_TOTAL,LISTING_VIEWS_TOTAL');
   url.searchParams.set('filter', buildTrafficFilter(startDate, endDate, ebayItemIds));
 
   const res = await fetch(url.toString(), {
@@ -84,18 +84,6 @@ export async function getTrafficReport(
   const metricKeys: string[] = (data.header?.metrics ?? []).map((m: any) => String(m.key ?? ''));
   const records: any[] = data.records ?? [];
 
-  // Calibration log: production CTR values look suspiciously integer ("1",
-  // "0") — print one real raw sample (name=value pairs, before any scaling)
-  // so we can confirm in Vercel logs whether CLICK_THROUGH_RATE is really a
-  // 0-1 fraction or already a percentage. Intentionally NOT changing the
-  // scaling logic below until we have that sample.
-  if (records.length > 0) {
-    const firstRecordRaw = (records[0].metricValues ?? [])
-      .map((metricValue: any, index: number) => `${metricKeys[index] ?? `metric${index}`}=${metricValue?.value ?? ''}`)
-      .join(', ');
-    console.log(`Analytics API calibrazione CTR: primo record grezzo -> ${firstRecordRaw}`);
-  }
-
   if (records.length === 0) {
     console.error(
       `Analytics API: nessun record nella risposta (chiavi presenti: ${Object.keys(data ?? {}).join(', ')})`
@@ -108,15 +96,18 @@ export async function getTrafficReport(
 
     let impressionCount = 0;
     let clickCount = 0;
-    let clickThroughRate = 0;
 
     (record.metricValues ?? []).forEach((metricValue: any, index: number) => {
       const name = metricKeys[index] ?? '';
       const val = parseFloat(metricValue?.value ?? '0') || 0;
       if (name === 'LISTING_IMPRESSION_TOTAL') impressionCount = val;
       else if (name === 'LISTING_VIEWS_TOTAL') clickCount = val;
-      else if (name === 'CLICK_THROUGH_RATE') clickThroughRate = val * 100; // frazione 0-1 → percentuale 0-100
     });
+
+    // CTR calcolato da noi: click / impression, in percentuale 0-100.
+    // Trasparente e coerente con i numeri mostrati nel recap.
+    const clickThroughRate =
+      impressionCount > 0 ? Math.round((clickCount / impressionCount) * 10000) / 100 : 0;
 
     result.set(itemId, { itemId, impressionCount, clickCount, clickThroughRate });
   }
