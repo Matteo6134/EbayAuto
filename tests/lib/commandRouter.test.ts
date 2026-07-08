@@ -45,6 +45,9 @@ describe('commandRouter', () => {
     expect(result.text).toContain('/scanproducts');
     expect(result.text).toContain('/recap');
     expect(result.text).toContain('/analizza');
+    expect(result.text).toContain('/settitle');
+    expect(result.text).toContain('/setcategory');
+    expect(result.text).toContain('/setspecifics');
   });
 
   it('dispatcha /analizza al comando corretto', async () => {

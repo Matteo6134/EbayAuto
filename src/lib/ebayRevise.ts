@@ -46,7 +46,7 @@ function toArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function escapeXml(unsafe: string): string {
+export function escapeXml(unsafe: string): string {
   return unsafe.replace(/[<>&'"]/g, (c) => {
     switch (c) {
       case '<': return '&lt;';
@@ -70,7 +70,7 @@ interface ItemDetails {
   specifics: EbaySpec[];
 }
 
-async function getExistingItemDetails(accessToken: string, itemId: string): Promise<ItemDetails | null> {
+export async function getExistingItemDetails(accessToken: string, itemId: string): Promise<ItemDetails | null> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ItemID>${itemId}</ItemID>
@@ -112,11 +112,12 @@ export async function applyProposal(
     case 'price':
       await reviseListingField(accessToken, itemId, `<StartPrice>${Number(proposedValue).toFixed(2)}</StartPrice>`);
       return;
-    case 'title':
+    case 'title': {
       // limit title to 80 chars
-      const newTitle = proposedValue.substring(0, 80).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const newTitle = escapeXml(proposedValue.substring(0, 80));
       await reviseListingField(accessToken, itemId, `<Title>${newTitle}</Title>`);
       return;
+    }
     case 'category': {
       let catXml = `<PrimaryCategory><CategoryID>${proposedValue}</CategoryID></PrimaryCategory>`;
       
@@ -173,4 +174,36 @@ export async function applyProposal(
     default:
       throw new Error(`Applicazione automatica non supportata per il campo "${field}"`);
   }
+}
+
+/**
+ * eBay's ReviseItem replaces the ENTIRE <ItemSpecifics> block on every call, so we
+ * must fetch the existing specifics first and merge the new values in (new values
+ * override existing ones with the same name, case-insensitive) before sending.
+ */
+export async function reviseItemSpecifics(
+  accessToken: string,
+  itemId: string,
+  newSpecifics: Record<string, string>
+): Promise<void> {
+  const details = await getExistingItemDetails(accessToken, itemId);
+  const existing = details?.specifics ?? [];
+
+  const merged = new Map<string, { name: string; value: string }>();
+  for (const spec of existing) {
+    const name = String(spec.Name);
+    const value = toArray(spec.Value).map((v) => String(v)).join(', ');
+    merged.set(name.toLowerCase(), { name, value });
+  }
+  for (const [name, value] of Object.entries(newSpecifics)) {
+    merged.set(name.toLowerCase(), { name, value });
+  }
+
+  const specsXmlList = Array.from(merged.values()).map(({ name, value }) => {
+    return `\n      <NameValueList><Name>${escapeXml(name)}</Name><Value>${escapeXml(value)}</Value></NameValueList>`;
+  });
+
+  const specificsXml = `<ItemSpecifics>${specsXmlList.join('')}\n    </ItemSpecifics>`;
+
+  await reviseListingField(accessToken, itemId, specificsXml);
 }
