@@ -41,13 +41,21 @@ describe('getTrafficReport', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        dimensionValueData: [
+        header: {
+          dimensionKeys: [{ key: 'LISTING' }],
+          metrics: [
+            { key: 'LISTING_IMPRESSION_TOTAL' },
+            { key: 'LISTING_VIEWS_TOTAL' },
+            { key: 'CLICK_THROUGH_RATE' },
+          ],
+        },
+        records: [
           {
-            dimensionValue: { value: '123456789012' },
-            metricData: [
-              { metric: 'LISTING_IMPRESSION_TOTAL', value: '1000' },
-              { metric: 'LISTING_VIEWS_TOTAL', value: '15' },
-              { metric: 'CLICK_THROUGH_RATE', value: '0.015' },
+            dimensionValues: [{ applicable: true, value: '123456789012' }],
+            metricValues: [
+              { applicable: true, value: '1000' },
+              { applicable: true, value: '15' },
+              { applicable: true, value: '0.015' },
             ],
           },
         ],

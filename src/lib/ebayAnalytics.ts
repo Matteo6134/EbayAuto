@@ -73,24 +73,38 @@ export async function getTrafficReport(
 
   const data = await res.json();
 
-  // The response structure: { dimensionValueData: [ { dimensionValue: {value: itemId}, metricData: [...] } ] }
-  const rows: any[] = data.dimensionValueData ?? [];
+  // Formato documentato della risposta getTrafficReport:
+  // {
+  //   header: { metrics: [{ key: 'LISTING_IMPRESSION_TOTAL' }, ...] },
+  //   records: [
+  //     { dimensionValues: [{ value: '<itemId>' }], metricValues: [{ value: '123' }, ...] }
+  //   ]
+  // }
+  // I metricValues sono POSIZIONALI, allineati all'ordine di header.metrics.
+  const metricKeys: string[] = (data.header?.metrics ?? []).map((m: any) => String(m.key ?? ''));
+  const records: any[] = data.records ?? [];
 
-  for (const row of rows) {
-    const itemId = String(row.dimensionValue?.value ?? '');
+  if (records.length === 0) {
+    console.error(
+      `Analytics API: nessun record nella risposta (chiavi presenti: ${Object.keys(data ?? {}).join(', ')})`
+    );
+  }
+
+  for (const record of records) {
+    const itemId = String(record.dimensionValues?.[0]?.value ?? '');
     if (!itemId) continue;
 
     let impressionCount = 0;
     let clickCount = 0;
     let clickThroughRate = 0;
 
-    for (const metric of row.metricData ?? []) {
-      const name: string = metric.metric ?? '';
-      const val = parseFloat(metric.value ?? '0') || 0;
+    (record.metricValues ?? []).forEach((metricValue: any, index: number) => {
+      const name = metricKeys[index] ?? '';
+      const val = parseFloat(metricValue?.value ?? '0') || 0;
       if (name === 'LISTING_IMPRESSION_TOTAL') impressionCount = val;
       else if (name === 'LISTING_VIEWS_TOTAL') clickCount = val;
-      else if (name === 'CLICK_THROUGH_RATE') clickThroughRate = val * 100; // convert 0-1 to 0-100
-    }
+      else if (name === 'CLICK_THROUGH_RATE') clickThroughRate = val * 100; // frazione 0-1 → percentuale 0-100
+    });
 
     result.set(itemId, { itemId, impressionCount, clickCount, clickThroughRate });
   }
