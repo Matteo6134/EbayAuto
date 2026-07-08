@@ -45,8 +45,8 @@ describe('getTrafficReport', () => {
           {
             dimensionValue: { value: '123456789012' },
             metricData: [
-              { metric: 'IMPRESSION_COUNT', value: '1000' },
-              { metric: 'CLICK_COUNT', value: '15' },
+              { metric: 'LISTING_IMPRESSION_TOTAL', value: '1000' },
+              { metric: 'LISTING_VIEWS_TOTAL', value: '15' },
               { metric: 'CLICK_THROUGH_RATE', value: '0.015' },
             ],
           },

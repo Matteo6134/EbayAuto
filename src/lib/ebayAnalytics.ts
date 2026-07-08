@@ -49,7 +49,7 @@ export async function getTrafficReport(
   url.searchParams.set('dimension', 'LISTING');
   url.searchParams.set(
     'metric',
-    'IMPRESSION_COUNT,CLICK_COUNT,CLICK_THROUGH_RATE'
+    'LISTING_IMPRESSION_TOTAL,LISTING_VIEWS_TOTAL,CLICK_THROUGH_RATE'
   );
   url.searchParams.set('filter', buildTrafficFilter(startDate, endDate, ebayItemIds));
 
@@ -87,8 +87,8 @@ export async function getTrafficReport(
     for (const metric of row.metricData ?? []) {
       const name: string = metric.metric ?? '';
       const val = parseFloat(metric.value ?? '0') || 0;
-      if (name === 'IMPRESSION_COUNT') impressionCount = val;
-      else if (name === 'CLICK_COUNT') clickCount = val;
+      if (name === 'LISTING_IMPRESSION_TOTAL') impressionCount = val;
+      else if (name === 'LISTING_VIEWS_TOTAL') clickCount = val;
       else if (name === 'CLICK_THROUGH_RATE') clickThroughRate = val * 100; // convert 0-1 to 0-100
     }
 
