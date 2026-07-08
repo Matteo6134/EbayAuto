@@ -191,6 +191,38 @@ describe('generateAndSendProposals', () => {
     expect(result.sent).toBe(1); // still counted; dedup will retry again next run
   });
 
+  it('smorzamento prezzo: NON sostituisce una pending se il nuovo prezzo differisce meno del 5%', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ field: 'price', proposedValue: '18.50' })]);
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: 111 }, error: null }, // pending esistente, differenza ~2.8%
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1);
+    expect(sendMessage).not.toHaveBeenCalled(); // nessun nuovo messaggio: la pending resta viva
+  });
+
+  it('smorzamento prezzo: sostituisce la pending se il nuovo prezzo differisce oltre il 5%', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ field: 'price', proposedValue: '15.00' })]);
+    vi.mocked(sendMessage).mockResolvedValue(999 as any);
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: 111 }, error: null }, // differenza ~16.7%
+      { data: null, error: null }, // delete
+      { data: { id: 44 }, error: null }, // insert nuova proposta
+      { data: null, error: null }, // update telegram_message_id
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      210039451,
+      expect.stringContaining('15.00'),
+      expect.anything()
+    );
+  });
+
   it('elimina la vecchia proposta pending obsoleta se il valore proposto è cambiato', async () => {
     vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '15.00' })]);
     vi.mocked(sendMessage).mockResolvedValue(999 as any);

@@ -108,7 +108,25 @@ export async function generateAndSendProposals(
         sent += 1;
         continue;
       } else {
-        // Valore diverso: eliminiamo la vecchia proposta pendente obsoleta
+        // Smorzamento per le proposte di prezzo: la media di mercato oscilla
+        // ogni giorno, quindi un prezzo proposto leggermente diverso NON è una
+        // novità — riproponiamo solo se differisce di oltre il 5% dal valore
+        // già pendente, altrimenti teniamo viva la proposta esistente.
+        if (draft.field === 'price') {
+          const oldValue = Number(existingPending.proposed_value);
+          const newValue = Number(draft.proposedValue);
+          if (
+            Number.isFinite(oldValue) &&
+            Number.isFinite(newValue) &&
+            oldValue > 0 &&
+            Math.abs(newValue - oldValue) / oldValue <= 0.05
+          ) {
+            // Variazione trascurabile: salta senza cancellare né reinviare
+            sent += 1;
+            continue;
+          }
+        }
+        // Valore diverso in modo sostanziale: eliminiamo la vecchia proposta pendente obsoleta
         await supabase.from('proposals').delete().eq('id', existingPending.id);
       }
     }
