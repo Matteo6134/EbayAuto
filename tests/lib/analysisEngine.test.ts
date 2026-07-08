@@ -22,6 +22,7 @@ const emptyInsights = {
   suggestedCategoryId: null,
   suggestedCategoryName: null,
   suggestedTitle: null,
+  insufficientData: true,
 };
 
 function metric(overrides: Partial<MetricPoint> = {}): MetricPoint {
@@ -182,8 +183,8 @@ describe('analyzeListing', () => {
     ]);
   });
 
-  it('esegue il Ghost Check e propone il relist se la ricerca su eBay non trova la mia inserzione', async () => {
-    const history = [metric({ watchCount: 0, quantitySold: 0 }), metric({ watchCount: 0, quantitySold: 0 }), metric({ watchCount: 0, quantitySold: 0 })];
+  it('esegue il Ghost Check e propone il relist se la ricerca su eBay non trova la mia inserzione (richiede almeno 7 giorni di storico)', async () => {
+    const history = Array.from({ length: 7 }, () => metric({ watchCount: 0, quantitySold: 0 }));
     vi.mocked(checkListingIndexed).mockResolvedValue({ isIndexed: false, searchResultCount: 0 });
 
     const result = await analyzeListing(
@@ -202,5 +203,39 @@ describe('analyzeListing', () => {
     await analyzeListing(snapshot({ today: metric({ watchCount: 5 }), history }), FAKE_TOKEN);
 
     expect(checkListingIndexed).not.toHaveBeenCalled();
+  });
+
+  it('non arma il Ghost Check / Lazarus con meno di 7 giorni di storico anche se tutto è a zero', async () => {
+    // Only 6 days: below the 7-day minimum required for the irreversible
+    // Ghost Check / Lazarus relist path, even though the listing looks
+    // "completely dead" (0 watchers, 0 sales, 0 impressions).
+    const history = Array.from({ length: 6 }, () => metric({ watchCount: 0, quantitySold: 0 }));
+
+    await analyzeListing(
+      snapshot({ today: metric({ watchCount: 0, quantitySold: 0, impressionCount: 0 }), history }),
+      FAKE_TOKEN
+    );
+
+    expect(checkListingIndexed).not.toHaveBeenCalled();
+  });
+
+  it('passa il proprio ebayItemId a getMarketInsights per escludere la propria inserzione dal confronto', async () => {
+    await analyzeListing(snapshot({ ebayItemId: '999888777666' }), FAKE_TOKEN);
+
+    expect(getMarketInsights).toHaveBeenCalledWith(FAKE_TOKEN, 'Prodotto Test', '123', '999888777666');
+  });
+
+  it('non emette alcuna nota prezzo-vs-mercato quando i dati di mercato sono insufficienti', async () => {
+    vi.mocked(getMarketInsights).mockResolvedValue({
+      averagePrice: null,
+      suggestedCategoryId: null,
+      suggestedCategoryName: null,
+      suggestedTitle: null,
+      insufficientData: true,
+    });
+
+    const result = await analyzeListing(snapshot(), FAKE_TOKEN);
+
+    expect(result.some((p) => p.field === 'price')).toBe(false);
   });
 });

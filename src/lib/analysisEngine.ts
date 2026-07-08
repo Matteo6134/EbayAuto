@@ -41,7 +41,13 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
   const avgWatch = average(snapshot.history.map((h) => h.watchCount));
   const recentSales = snapshot.history.reduce((sum, h) => sum + h.quantitySold, 0) + snapshot.today.quantitySold;
   const hasEnoughHistory = snapshot.history.length >= 3;
-  const isCompletelyDead = hasEnoughHistory && recentSales === 0 && snapshot.today.watchCount === 0 && (snapshot.today.impressionCount ?? 0) === 0;
+  // The Ghost Check / Lazarus relist path is an irreversible, high-impact
+  // action (it closes and reopens the listing under a new eBay item id), so
+  // it requires a longer history (7 days) than the other, reversible rules
+  // below before it's allowed to arm.
+  const hasEnoughHistoryForLazarus = snapshot.history.length >= 7;
+  const isCompletelyDead =
+    hasEnoughHistoryForLazarus && recentSales === 0 && snapshot.today.watchCount === 0 && (snapshot.today.impressionCount ?? 0) === 0;
 
   // --- Ghost Check: verify listing is actually indexed by eBay Cassini ---
   if (isCompletelyDead) {
@@ -77,7 +83,10 @@ export async function analyzeListing(snapshot: ListingSnapshot, accessToken: str
     return proposals; // Lazarus supersedes all other proposals
   }
 
-  const insights = await getMarketInsights(accessToken, snapshot.title, snapshot.categoryId);
+  const insights = await getMarketInsights(accessToken, snapshot.title, snapshot.categoryId, snapshot.ebayItemId);
+  // When the market sample is insufficient, averagePrice is null and we
+  // deliberately emit nothing for the price-vs-market rule (silence beats
+  // noise) instead of a misleading "perfettamente in linea" note.
   if (insights.averagePrice !== null) {
     const highThreshold = insights.averagePrice * 1.05;
     const lowThreshold = insights.averagePrice * 0.85;

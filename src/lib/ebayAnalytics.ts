@@ -6,6 +6,28 @@ export interface ListingTrafficData {
 }
 
 /**
+ * Formats a Date as the 8-digit YYYYMMDD string required by the eBay
+ * Analytics API's `date_range` filter.
+ */
+function formatDate8(d: Date): string {
+  return d.toISOString().split('T')[0].replace(/-/g, '');
+}
+
+/**
+ * Builds the `filter` query parameter for getTrafficReport per eBay's
+ * documented Analytics API format:
+ * - date_range:[YYYYMMDD..YYYYMMDD] (8-digit dates)
+ * - listing_ids:{id1|id2|id3} (plural key, braces, pipe-separated)
+ *
+ * Docs: https://developer.ebay.com/api-docs/sell/analytics/resources/traffic_report/methods/getTrafficReport
+ */
+export function buildTrafficFilter(startDate: Date, endDate: Date, ebayItemIds: string[]): string {
+  const dateRange = `date_range:[${formatDate8(startDate)}..${formatDate8(endDate)}]`;
+  const listingIds = `listing_ids:{${ebayItemIds.join('|')}}`;
+  return `${dateRange},${listingIds}`;
+}
+
+/**
  * Fetches real traffic data (impressions, clicks, CTR) from the eBay Analytics API.
  * This is far more accurate than watcher counts for understanding listing visibility.
  *
@@ -23,22 +45,13 @@ export async function getTrafficReport(
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - 30);
 
-  const fmt = (d: Date) =>
-    d.toISOString().split('T')[0].replace(/-/g, '') + '000000'; // yyyyMMddHHmmss format
-
-  // Filter by listing IDs
-  const listingFilter = ebayItemIds.map((id) => `listing_id:${id}`).join(',');
-
   const url = new URL('https://api.ebay.com/sell/analytics/v1/traffic_report');
   url.searchParams.set('dimension', 'LISTING');
   url.searchParams.set(
     'metric',
     'IMPRESSION_COUNT,CLICK_COUNT,CLICK_THROUGH_RATE'
   );
-  url.searchParams.set(
-    'filter',
-    `date_range:[${fmt(startDate)}..${fmt(endDate)}],${listingFilter}`
-  );
+  url.searchParams.set('filter', buildTrafficFilter(startDate, endDate, ebayItemIds));
 
   const res = await fetch(url.toString(), {
     method: 'GET',
@@ -51,7 +64,10 @@ export async function getTrafficReport(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`Analytics API failed: ${res.status} ${body}`);
+    // Non-fatal for the cron: log status + body so failures are visible in
+    // Vercel logs, but return an empty map so the caller can proceed without
+    // traffic data instead of failing the whole run.
+    console.error(`Analytics API failed: status=${res.status} body=${body}`);
     return result;
   }
 

@@ -12,18 +12,38 @@ export interface MarketInsights {
   suggestedCategoryId: string | null;
   suggestedCategoryName: string | null;
   suggestedTitle: string | null;
+  /** True when the sample of external comparables was too small (<3) to trust the average. */
+  insufficientData: boolean;
+}
+
+/** Minimum number of external competitor items required before trusting an average price. */
+export const MIN_COMPARABLE_SAMPLE = 3;
+
+/**
+ * Returns true when a Browse API item result is the seller's own listing.
+ * Browse API items expose `itemId` as `v1|<legacyItemId>|0` and also a plain
+ * `legacyItemId` field; either one may match the watched listing's own eBay
+ * item id.
+ */
+export function isOwnItem(item: { itemId?: string; legacyItemId?: string }, ownEbayItemId: string): boolean {
+  if (!ownEbayItemId) return false;
+  if (item.legacyItemId && item.legacyItemId === ownEbayItemId) return true;
+  if (item.itemId && item.itemId.includes(ownEbayItemId)) return true;
+  return false;
 }
 
 export async function getMarketInsights(
   accessToken: string,
   title: string,
-  categoryId: string | null
+  categoryId: string | null,
+  ownEbayItemId: string
 ): Promise<MarketInsights> {
   const defaultInsights: MarketInsights = {
     averagePrice: null,
     suggestedCategoryId: null,
     suggestedCategoryName: null,
     suggestedTitle: null,
+    insufficientData: true,
   };
 
   const query = extractKeywords(title);
@@ -69,12 +89,17 @@ export async function getMarketInsights(
     return { ...defaultInsights, suggestedCategoryId: bestCategoryId, suggestedCategoryName: bestCategoryName };
   }
 
+  // Exclude the seller's own item from the comparable set: otherwise the
+  // near-exact-title query matches (or is dominated by) the seller's own
+  // live listing and the "market average" degenerates to the own price.
+  const competitorItems = data.itemSummaries.filter((item: any) => !isOwnItem(item, ownEbayItemId));
+
   // --- Step 3: Compute average price and extract SEO keywords ---
   let total = 0;
   let count = 0;
   const wordCounts: Record<string, number> = {};
 
-  for (const item of data.itemSummaries) {
+  for (const item of competitorItems) {
     const priceStr = item.price?.value;
     if (priceStr) {
       const price = parseFloat(priceStr);
@@ -97,8 +122,6 @@ export async function getMarketInsights(
     }
   }
 
-  const averagePrice = count > 0 ? Math.round((total / count) * 100) / 100 : null;
-
   // --- Step 4: Build optimized title from top keywords ---
   let suggestedTitle: string | null = null;
   const sortedWords = Object.entries(wordCounts)
@@ -114,10 +137,26 @@ export async function getMarketInsights(
     suggestedTitle = newTitle.replace(/\b\w/g, (l) => l.toUpperCase());
   }
 
+  // Require a minimum sample of external comparables before trusting the
+  // average; otherwise signal "insufficient market data" instead of a
+  // fake/unreliable average.
+  if (count < MIN_COMPARABLE_SAMPLE) {
+    return {
+      averagePrice: null,
+      suggestedCategoryId: bestCategoryId,
+      suggestedCategoryName: bestCategoryName,
+      suggestedTitle,
+      insufficientData: true,
+    };
+  }
+
+  const averagePrice = Math.round((total / count) * 100) / 100;
+
   return {
     averagePrice,
     suggestedCategoryId: bestCategoryId,
     suggestedCategoryName: bestCategoryName,
     suggestedTitle,
+    insufficientData: false,
   };
 }

@@ -12,7 +12,7 @@ vi.mock('@/lib/analysisEngine', () => ({
 
 import { sendMessage } from '@/lib/telegram';
 import { analyzeListing, type ListingSnapshot, type MetricPoint, type ProposalDraft } from '@/lib/analysisEngine';
-import { generateAndSendProposals } from '@/lib/proposalGenerator';
+import { generateAndSendProposals, expireStalePendingProposals } from '@/lib/proposalGenerator';
 
 const FAKE_TOKEN = 'fake-token';
 
@@ -71,7 +71,7 @@ describe('generateAndSendProposals', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('salva come informational e non manda bottoni per una proposta non azionabile', async () => {
+  it('salva come informational e non manda bottoni per una proposta non azionabile mai vista prima', async () => {
     vi.mocked(analyzeListing).mockResolvedValue([
       draft({
         field: 'category',
@@ -82,7 +82,10 @@ describe('generateAndSendProposals', () => {
         actionable: false,
       }),
     ]);
-    const supabase = createFakeSupabase([]);
+    const supabase = createFakeSupabase([
+      { data: null, error: null }, // nessun duplicato informational recente
+      { data: null, error: null }, // insert informational
+    ]);
 
     const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
 
@@ -92,11 +95,34 @@ describe('generateAndSendProposals', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('salva come pending e manda un messaggio con bottoni per una proposta azionabile', async () => {
+  it('salta completamente una nota informational identica già vista negli ultimi 7 giorni (niente insert, niente recap)', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([
+      draft({
+        field: 'category',
+        currentValue: '1',
+        proposedValue: 'rivedi manualmente',
+        rationale: 'Nessun interesse riscontrato.',
+        impact: 'high',
+        actionable: false,
+      }),
+    ]);
+    const supabase = createFakeSupabase([
+      { data: { id: 99 }, error: null }, // duplicato informational trovato negli ultimi 7 giorni
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result).toEqual({ sent: 0, informational: [] });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('salva come pending, manda un messaggio con bottoni e salva il telegram_message_id per una proposta azionabile', async () => {
     vi.mocked(analyzeListing).mockResolvedValue([draft()]);
+    vi.mocked(sendMessage).mockResolvedValue(555 as any);
     const supabase = createFakeSupabase([
       { data: null, error: null }, // nessuna proposta pending esistente
       { data: { id: 42 }, error: null }, // insert riuscito
+      { data: null, error: null }, // update telegram_message_id
     ]);
 
     const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
@@ -116,10 +142,10 @@ describe('generateAndSendProposals', () => {
     );
   });
 
-  it('salta inserimento e messaggio se esiste già una proposta pending con lo stesso valore', async () => {
+  it('salta inserimento e messaggio se esiste già una proposta pending con lo stesso valore e un telegram_message_id salvato', async () => {
     vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '18.00' })]);
     const supabase = createFakeSupabase([
-      { data: { id: 7, proposed_value: '18.00' }, error: null }, // pending identica già presente
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: 321 }, error: null }, // pending identica già presente e già notificata
     ]);
 
     const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
@@ -128,12 +154,51 @@ describe('generateAndSendProposals', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('ritenta l\'invio Telegram per una proposta pending orfana (stesso valore, telegram_message_id nullo) e salva il nuovo message_id', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '18.00' })]);
+    vi.mocked(sendMessage).mockResolvedValue(777 as any);
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: null }, error: null }, // pending orfana: mai notificata
+      { data: null, error: null }, // update telegram_message_id
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      210039451,
+      expect.stringContaining('Prodotto Test'),
+      expect.objectContaining({
+        inline_keyboard: [
+          [
+            { text: '✅ Approva', callback_data: 'proposal:7:approve' },
+            { text: '❌ Rifiuta', callback_data: 'proposal:7:reject' },
+          ],
+        ],
+      })
+    );
+  });
+
+  it('non lancia se il reinvio Telegram per una proposta orfana fallisce di nuovo', async () => {
+    vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '18.00' })]);
+    vi.mocked(sendMessage).mockRejectedValue(new Error('Telegram sendMessage fallita (status 400)'));
+    const supabase = createFakeSupabase([
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: null }, error: null },
+    ]);
+
+    const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
+
+    expect(result.sent).toBe(1); // still counted; dedup will retry again next run
+  });
+
   it('elimina la vecchia proposta pending obsoleta se il valore proposto è cambiato', async () => {
     vi.mocked(analyzeListing).mockResolvedValue([draft({ proposedValue: '15.00' })]);
+    vi.mocked(sendMessage).mockResolvedValue(999 as any);
     const supabase = createFakeSupabase([
-      { data: { id: 7, proposed_value: '18.00' }, error: null }, // pending con valore diverso
+      { data: { id: 7, proposed_value: '18.00', telegram_message_id: 111 }, error: null }, // pending con valore diverso
       { data: null, error: null }, // esito della delete
       { data: { id: 43 }, error: null }, // insert della nuova proposta
+      { data: null, error: null }, // update telegram_message_id
     ]);
 
     const result = await generateAndSendProposals(supabase, 210039451, 1, snapshot(), FAKE_TOKEN);
@@ -151,5 +216,44 @@ describe('generateAndSendProposals', () => {
         ],
       })
     );
+  });
+});
+
+describe('expireStalePendingProposals', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('non fa nulla se non ci sono proposte pending scadute', async () => {
+    const supabase = createFakeSupabase([{ data: [], error: null }]);
+
+    const count = await expireStalePendingProposals(supabase);
+
+    expect(count).toBe(0);
+  });
+
+  it('marca come rejected le proposte pending più vecchie di 14 giorni e logga il risultato', async () => {
+    const supabase = createFakeSupabase([
+      { data: [{ id: 1 }, { id: 2 }], error: null }, // select delle stale
+      { data: null, error: null }, // update -> rejected
+    ]);
+
+    const count = await expireStalePendingProposals(supabase);
+
+    expect(count).toBe(2);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('2 proposte pending scadute'));
+  });
+
+  it('ritorna 0 e logga un errore se l\'update fallisce', async () => {
+    const supabase = createFakeSupabase([
+      { data: [{ id: 1 }], error: null }, // select delle stale
+      { data: null, error: { message: 'db error' } }, // update fallito
+    ]);
+
+    const count = await expireStalePendingProposals(supabase);
+
+    expect(count).toBe(0);
+    expect(console.error).toHaveBeenCalled();
   });
 });

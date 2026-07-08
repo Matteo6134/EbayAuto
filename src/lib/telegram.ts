@@ -47,7 +47,7 @@ function apiUrl(method: string): string {
   return `https://api.telegram.org/bot${token}/${method}`;
 }
 
-export async function sendMessage(chatId: number, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<void> {
+export async function sendMessage(chatId: number, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<number | undefined> {
   const body: Record<string, unknown> = { chat_id: chatId, text };
   if (replyMarkup) {
     body.reply_markup = replyMarkup;
@@ -59,6 +59,12 @@ export async function sendMessage(chatId: number, text: string, replyMarkup?: In
   });
   if (!res.ok) {
     throw new Error(`Telegram sendMessage fallita (status ${res.status})`);
+  }
+  try {
+    const json = await res.json();
+    return json?.result?.message_id as number | undefined;
+  } catch {
+    return undefined;
   }
 }
 

@@ -98,19 +98,55 @@ export default function Dashboard() {
   const [processing, setProcessing] = useState<number | null>(null);
   const [tg, setTg] = useState<any>(null);
 
-  // Load Telegram WebApp SDK
+  // Load Telegram WebApp SDK. `sdkReady` only flips to true once the script
+  // has loaded AND window.Telegram.WebApp.initData is actually populated —
+  // fetching before that point sends an empty initData and gets a 401.
+  const [sdkReady, setSdkReady] = useState(false);
+
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://telegram.org/js/telegram-web-app.js';
-    script.onload = () => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryMarkReady = () => {
       const w = window as any;
-      if (w.Telegram?.WebApp) {
+      if (w.Telegram?.WebApp?.initData) {
+        if (cancelled) return true;
         w.Telegram.WebApp.ready();
         w.Telegram.WebApp.expand();
         setTg(w.Telegram.WebApp);
+        setSdkReady(true);
+        return true;
       }
+      return false;
+    };
+
+    const script = document.createElement('script');
+    script.src = 'https://telegram.org/js/telegram-web-app.js';
+    script.onload = () => {
+      if (tryMarkReady()) return;
+      // initData may populate slightly after the script's onload fires;
+      // poll briefly with a hard timeout so we never hang forever.
+      pollTimer = setInterval(() => {
+        if (tryMarkReady() && pollTimer) {
+          clearInterval(pollTimer);
+        }
+      }, 100);
+      timeoutTimer = setTimeout(() => {
+        if (pollTimer) clearInterval(pollTimer);
+        if (!cancelled) setSdkReady(true); // give up waiting; fetchData will surface a real error
+      }, 3000);
+    };
+    script.onerror = () => {
+      if (!cancelled) setSdkReady(true); // SDK failed to load; fetchData will surface a real error
     };
     document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    };
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -131,7 +167,10 @@ export default function Dashboard() {
     }
   }, [selectedId]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    if (!sdkReady) return;
+    fetchData();
+  }, [sdkReady, fetchData]);
 
   const handleAction = async (proposalId: number, action: 'approve' | 'reject') => {
     setProcessing(proposalId);

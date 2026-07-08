@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createHmac } from 'crypto';
 
+const INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60; // 24h — reject stale/replayed initData
+
 // Validates the Telegram initData to ensure the request comes from a real Telegram user
 function validateTelegramInitData(initData: string, botToken: string): number | null {
   try {
@@ -20,6 +22,14 @@ function validateTelegramInitData(initData: string, botToken: string): number | 
 
     if (computedHash !== hash) return null;
 
+    // Reject stale initData so a captured/leaked string can't be replayed forever.
+    const authDateStr = params.get('auth_date');
+    if (!authDateStr) return null;
+    const authDate = parseInt(authDateStr, 10);
+    if (!Number.isFinite(authDate)) return null;
+    const ageSeconds = Date.now() / 1000 - authDate;
+    if (ageSeconds > INIT_DATA_MAX_AGE_SECONDS || ageSeconds < 0) return null;
+
     const userStr = params.get('user');
     if (!userStr) return null;
     const user = JSON.parse(userStr);
@@ -27,6 +37,14 @@ function validateTelegramInitData(initData: string, botToken: string): number | 
   } catch {
     return null;
   }
+}
+
+function getSupabaseUrl(): string {
+  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) {
+    throw new Error('SUPABASE_URL o NEXT_PUBLIC_SUPABASE_URL mancanti');
+  }
+  return url;
 }
 
 export async function GET(req: NextRequest) {
@@ -47,10 +65,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createClient(getSupabaseUrl(), process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   // Fetch all active listings with latest metrics and pending proposals
   const { data: listings } = await supabase
@@ -129,10 +144,7 @@ export async function POST(req: NextRequest) {
 
   // Reuse the existing callbackHandler logic
   const { handleProposalCallback } = await import('@/lib/callbackHandler');
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createClient(getSupabaseUrl(), process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   const result = await handleProposalCallback(supabase, `proposal:${proposalId}:${action}`, chatId);
   if (!result) {

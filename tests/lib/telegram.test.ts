@@ -74,6 +74,29 @@ describe('telegram client', () => {
     );
   });
 
+  it('ritorna il message_id restituito da Telegram', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 555 } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { sendMessage } = await import('@/lib/telegram');
+    const messageId = await sendMessage(42, 'ciao');
+
+    expect(messageId).toBe(555);
+  });
+
+  it('ritorna undefined se la risposta Telegram non ha un body JSON valido', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { sendMessage } = await import('@/lib/telegram');
+    const messageId = await sendMessage(42, 'ciao');
+
+    expect(messageId).toBeUndefined();
+  });
+
   it('non include reply_markup se non fornito', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);

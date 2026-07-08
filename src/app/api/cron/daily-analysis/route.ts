@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
 import { collectDailyMetrics } from '@/lib/metricsCollector';
-import { generateAndSendProposals } from '@/lib/proposalGenerator';
+import { generateAndSendProposals, expireStalePendingProposals } from '@/lib/proposalGenerator';
 import { sendMessage, getDashboardUrl } from '@/lib/telegram';
 import { buildDailySummaryText, type ListingRecapData } from '@/lib/recap';
 import { refreshAccessToken } from '@/lib/ebayOAuth';
@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseClient();
 
   await collectDailyMetrics(supabase, chatId);
+  await expireStalePendingProposals(supabase);
 
   const { data: listings } = await supabase
     .from('watched_listings')
@@ -24,7 +25,25 @@ export async function GET(req: NextRequest) {
     .eq('chat_id', chatId)
     .eq('status', 'active');
 
+  const todayDateString = new Date().toISOString().slice(0, 10);
   const recapData: ListingRecapData[] = [];
+
+  // Refresh the eBay access token once per run, not once per listing:
+  // repeated per-listing refreshes were wasteful and risked throttling.
+  let sharedAccessToken: string | null = null;
+  try {
+    const { data: connection } = await supabase
+      .from('ebay_connection')
+      .select('refresh_token')
+      .eq('chat_id', chatId)
+      .maybeSingle();
+    if (connection?.refresh_token) {
+      const tokens = await refreshAccessToken(connection.refresh_token);
+      sharedAccessToken = tokens.accessToken;
+    }
+  } catch (err) {
+    console.error('Cron giornaliero: rinnovo token eBay fallito', err);
+  }
 
   for (const listing of listings ?? []) {
     const { data: history } = await supabase
@@ -36,6 +55,11 @@ export async function GET(req: NextRequest) {
     const rows = history ?? [];
     const today = rows[rows.length - 1];
     if (!today) continue;
+    // Guard against treating a stale row as "today": if the latest
+    // daily_metrics row isn't actually dated today (e.g. today's collection
+    // failed for this listing), skip analysis rather than re-analyzing
+    // yesterday's data as if it were current.
+    if (today.metric_date !== todayDateString) continue;
     const pastRows = rows.slice(0, -1);
     const avgWatch =
       pastRows.length > 0 ? pastRows.reduce((sum: number, r: any) => sum + r.watch_count, 0) / pastRows.length : 0;
@@ -71,10 +95,8 @@ export async function GET(req: NextRequest) {
 
     let informational: string[] = [];
     try {
-      const { data: connection } = await supabase.from('ebay_connection').select('refresh_token').eq('chat_id', chatId).maybeSingle();
-      if (connection?.refresh_token) {
-        const tokens = await refreshAccessToken(connection.refresh_token);
-        const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot, tokens.accessToken);
+      if (sharedAccessToken) {
+        const result = await generateAndSendProposals(supabase, chatId, listing.id, snapshot, sharedAccessToken);
         informational = result.informational;
       }
     } catch (err) {
