@@ -8,6 +8,7 @@ import { handleScanProducts } from './commands/scanproducts';
 import { handleRecap } from './commands/recap';
 import { handleRemove } from './commands/removeproduct';
 import { handleForceScan } from './commands/forcescan';
+import { handleAnalyze } from './commands/analyze';
 
 const HELP_TEXT = `Comandi disponibili:
 /addproduct <link o ID eBay> - inizia a monitorare un prodotto
@@ -19,6 +20,7 @@ const HELP_TEXT = `Comandi disponibili:
 /scanproducts - aggiunge automaticamente le inserzioni attive del tuo account eBay collegato
 /recap <id> - riepilogo di un prodotto monitorato
 /forcescan - forza la raccolta delle metriche ignorando il timer giornaliero
+/analizza - avvia subito l'analisi completa (metriche + proposte + recap)
 /help - questo messaggio`;
 
 const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> = {
@@ -32,6 +34,7 @@ const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> 
   '/scanproducts': handleScanProducts,
   '/recap': handleRecap,
   '/forcescan': handleForceScan,
+  '/analizza': handleAnalyze,
   '/help': async () => ({ text: HELP_TEXT }),
 };
 

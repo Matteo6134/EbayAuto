@@ -44,6 +44,22 @@ describe('commandRouter', () => {
     expect(result.text).toContain('/connectebay');
     expect(result.text).toContain('/scanproducts');
     expect(result.text).toContain('/recap');
+    expect(result.text).toContain('/analizza');
+  });
+
+  it('dispatcha /analizza al comando corretto', async () => {
+    const originalUrl = process.env.NEXT_PUBLIC_APP_URL;
+    const originalSecret = process.env.CRON_SECRET;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.CRON_SECRET;
+    try {
+      const supabase = createFakeSupabase([]);
+      const result = await routeCommand(supabase, 100, '/analizza');
+      expect(result.text).toContain('Configurazione mancante');
+    } finally {
+      process.env.NEXT_PUBLIC_APP_URL = originalUrl;
+      process.env.CRON_SECRET = originalSecret;
+    }
   });
 
   it('dispatcha /scanproducts al comando corretto', async () => {
