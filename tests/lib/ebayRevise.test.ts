@@ -263,6 +263,9 @@ describe('reviseWithVariations', () => {
     expect(body).toContain('<StartPrice>60.00</StartPrice>');
     // ogni variazione ha la propria quantità
     expect(body.match(/<Quantity>3<\/Quantity>/g)?.length).toBe(2);
+    // ogni variazione dichiara EAN "Non applicabile" (richiesto da eBay quando
+    // l'inserzione originale ha un codice prodotto a livello di item)
+    expect(body.match(/<EAN>Non applicabile<\/EAN>/g)?.length).toBe(2);
   });
 
   it('esegue l\'escape dei valori forniti dall\'utente', async () => {

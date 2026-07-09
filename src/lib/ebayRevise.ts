@@ -238,7 +238,11 @@ export async function reviseWithVariations(
 
   const variationXmlList = variants.map((variant, index) => {
     const sku = `${itemId}-VAR${index + 1}`;
-    return `\n      <Variation>\n        <SKU>${escapeXml(sku)}</SKU>\n        <StartPrice>${variant.price.toFixed(2)}</StartPrice>\n        <Quantity>${quantityPerVariant}</Quantity>\n        <VariationSpecifics>\n          <NameValueList><Name>${escapedOptionName}</Name><Value>${escapeXml(variant.value)}</Value></NameValueList>\n        </VariationSpecifics>\n      </Variation>`;
+    // VariationProductListingDetails con EAN "Non applicabile": obbligatorio
+    // quando l'inserzione originale ha un codice prodotto a livello di item —
+    // senza, eBay rifiuta la conversione ("ID dell'oggetto con più codici
+    // prodotto non valido per le varianti").
+    return `\n      <Variation>\n        <SKU>${escapeXml(sku)}</SKU>\n        <StartPrice>${variant.price.toFixed(2)}</StartPrice>\n        <Quantity>${quantityPerVariant}</Quantity>\n        <VariationSpecifics>\n          <NameValueList><Name>${escapedOptionName}</Name><Value>${escapeXml(variant.value)}</Value></NameValueList>\n        </VariationSpecifics>\n        <VariationProductListingDetails>\n          <EAN>Non applicabile</EAN>\n        </VariationProductListingDetails>\n      </Variation>`;
   });
 
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
