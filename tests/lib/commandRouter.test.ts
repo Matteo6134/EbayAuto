@@ -48,6 +48,7 @@ describe('commandRouter', () => {
     expect(result.text).toContain('/settitle');
     expect(result.text).toContain('/setcategory');
     expect(result.text).toContain('/setspecifics');
+    expect(result.text).toContain('/setbestoffer');
   });
 
   it('dispatcha /analizza al comando corretto', async () => {
