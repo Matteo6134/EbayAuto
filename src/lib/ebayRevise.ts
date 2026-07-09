@@ -74,6 +74,7 @@ export async function getExistingItemDetails(accessToken: string, itemId: string
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ItemID>${itemId}</ItemID>
+  <IncludeItemSpecifics>true</IncludeItemSpecifics>
 </GetItemRequest>`;
 
   const res = await fetch('https://api.ebay.com/ws/api.dll', {
