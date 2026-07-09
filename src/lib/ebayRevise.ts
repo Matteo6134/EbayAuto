@@ -68,6 +68,8 @@ interface ItemDetails {
   conditionId: string | null;
   title: string;
   specifics: EbaySpec[];
+  quantity: number;
+  quantitySold: number;
 }
 
 export async function getExistingItemDetails(accessToken: string, itemId: string): Promise<ItemDetails | null> {
@@ -96,10 +98,15 @@ export async function getExistingItemDetails(accessToken: string, itemId: string
   const item = parsed?.GetItemResponse?.Item;
   if (!item) return null;
 
+  const quantity = Number(item.Quantity);
+  const quantitySold = Number(item.SellingStatus?.QuantitySold);
+
   return {
     conditionId: item.ConditionID ? String(item.ConditionID) : null,
     title: item.Title ? String(item.Title) : '',
     specifics: toArray(item.ItemSpecifics?.NameValueList),
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+    quantitySold: Number.isFinite(quantitySold) && quantitySold > 0 ? quantitySold : 0,
   };
 }
 
@@ -207,4 +214,69 @@ export async function reviseItemSpecifics(
   const specificsXml = `<ItemSpecifics>${specsXmlList.join('')}\n    </ItemSpecifics>`;
 
   await reviseListingField(accessToken, itemId, specificsXml);
+}
+
+/**
+ * Converte un'inserzione a prezzo fisso in un'inserzione con varianti tramite
+ * ReviseFixedPriceItem. eBay rifiuta questa chiamata se l'inserzione ha già vendite:
+ * il chiamante deve verificarlo prima (vedi getExistingItemDetails -> quantitySold).
+ */
+export async function reviseWithVariations(
+  accessToken: string,
+  itemId: string,
+  optionName: string,
+  variants: Array<{ value: string; price: number }>,
+  quantityPerVariant: number
+): Promise<void> {
+  const escapedOptionName = escapeXml(optionName);
+
+  const valuesXml = variants
+    .map((variant) => `\n          <Value>${escapeXml(variant.value)}</Value>`)
+    .join('');
+
+  const variationSpecificsSetXml = `\n      <VariationSpecificsSet>\n        <NameValueList>\n          <Name>${escapedOptionName}</Name>${valuesXml}\n        </NameValueList>\n      </VariationSpecificsSet>`;
+
+  const variationXmlList = variants.map((variant, index) => {
+    const sku = `${itemId}-VAR${index + 1}`;
+    return `\n      <Variation>\n        <SKU>${escapeXml(sku)}</SKU>\n        <StartPrice>${variant.price.toFixed(2)}</StartPrice>\n        <Quantity>${quantityPerVariant}</Quantity>\n        <VariationSpecifics>\n          <NameValueList><Name>${escapedOptionName}</Name><Value>${escapeXml(variant.value)}</Value></NameValueList>\n        </VariationSpecifics>\n      </Variation>`;
+  });
+
+  const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    <Variations>${variationSpecificsSetXml}${variationXmlList.join('')}
+    </Variations>
+  </Item>
+</ReviseFixedPriceItemRequest>`;
+
+  const res = await fetch('https://api.ebay.com/ws/api.dll', {
+    method: 'POST',
+    headers: {
+      'X-EBAY-API-SITEID': '101',
+      'X-EBAY-API-COMPATIBILITY-LEVEL': '1155',
+      'X-EBAY-API-CALL-NAME': 'ReviseFixedPriceItem',
+      'X-EBAY-API-IAF-TOKEN': accessToken,
+      'Content-Type': 'text/xml',
+    },
+    body: xmlBody,
+  });
+
+  if (!res.ok) {
+    throw new Error(`ReviseFixedPriceItem fallita (status ${res.status})`);
+  }
+
+  const xml = await res.text();
+  const parser = new XMLParser();
+  const parsed = parser.parse(xml);
+  const ack = parsed?.ReviseFixedPriceItemResponse?.Ack;
+  if (ack !== 'Success' && ack !== 'Warning') {
+    const errors = parsed?.ReviseFixedPriceItemResponse?.Errors;
+    let message = 'risposta eBay non valida';
+    const errorList = toArray(errors);
+    if (errorList.length > 0) {
+      message = errorList.map((e: any) => e.LongMessage || e.ShortMessage).join(' | ');
+    }
+    throw new Error(`ReviseFixedPriceItem ha restituito un errore: ${message}`);
+  }
 }

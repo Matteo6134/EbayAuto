@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { reviseListingField, applyProposal, escapeXml, reviseItemSpecifics } from '@/lib/ebayRevise';
+import {
+  reviseListingField,
+  applyProposal,
+  escapeXml,
+  reviseItemSpecifics,
+  reviseWithVariations,
+  getExistingItemDetails,
+} from '@/lib/ebayRevise';
 
 const successXml = `<?xml version="1.0" encoding="UTF-8"?>
 <ReviseItemResponse xmlns="urn:ebay:apis:eBLBaseComponents"><Ack>Success</Ack></ReviseItemResponse>`;
@@ -180,5 +187,146 @@ describe('reviseItemSpecifics', () => {
     await expect(reviseItemSpecifics('access-token', 'ITEM1', { Marca: 'Bosch' })).rejects.toThrow(
       'Specifiche non valide'
     );
+  });
+});
+
+describe('getExistingItemDetails - quantity e quantitySold', () => {
+  it('legge quantity e quantitySold da GetItem', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GetItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>ITEM1</ItemID>
+    <Title>Lampada da tavolo</Title>
+    <Quantity>5</Quantity>
+    <SellingStatus><QuantitySold>2</QuantitySold></SellingStatus>
+  </Item>
+</GetItemResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    const details = await getExistingItemDetails('access-token', 'ITEM1');
+
+    expect(details?.quantity).toBe(5);
+    expect(details?.quantitySold).toBe(2);
+  });
+
+  it('usa i valori di default quando Quantity/QuantitySold sono assenti', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GetItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>ITEM1</ItemID>
+    <Title>Lampada da tavolo</Title>
+  </Item>
+</GetItemResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    const details = await getExistingItemDetails('access-token', 'ITEM1');
+
+    expect(details?.quantity).toBe(1);
+    expect(details?.quantitySold).toBe(0);
+  });
+});
+
+describe('reviseWithVariations', () => {
+  const successVariationsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<ReviseFixedPriceItemResponse xmlns="urn:ebay:apis:eBLBaseComponents"><Ack>Success</Ack></ReviseFixedPriceItemResponse>`;
+
+  it('chiama ReviseFixedPriceItem con il blocco Variations corretto', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => successVariationsXml });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await reviseWithVariations(
+      'access-token',
+      'ITEM1',
+      'Lampadina',
+      [
+        { value: 'Con lampadina', price: 88.83 },
+        { value: 'Senza lampadina', price: 60 },
+      ],
+      3
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.ebay.com/ws/api.dll');
+    expect(options.headers['X-EBAY-API-CALL-NAME']).toBe('ReviseFixedPriceItem');
+
+    const body = options.body as string;
+    expect(body).toContain('<ItemID>ITEM1</ItemID>');
+    expect(body).toContain('<VariationSpecificsSet>');
+    expect(body).toContain('<Name>Lampadina</Name>');
+    expect(body).toContain('<Value>Con lampadina</Value>');
+    expect(body).toContain('<Value>Senza lampadina</Value>');
+
+    expect(body).toContain('<SKU>ITEM1-VAR1</SKU>');
+    expect(body).toContain('<SKU>ITEM1-VAR2</SKU>');
+    expect(body).toContain('<StartPrice>88.83</StartPrice>');
+    expect(body).toContain('<StartPrice>60.00</StartPrice>');
+    // ogni variazione ha la propria quantità
+    expect(body.match(/<Quantity>3<\/Quantity>/g)?.length).toBe(2);
+  });
+
+  it('esegue l\'escape dei valori forniti dall\'utente', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => successVariationsXml });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await reviseWithVariations(
+      'access-token',
+      'ITEM1',
+      'Colore & Taglia',
+      [
+        { value: 'Rosso <XL>', price: 10 },
+        { value: 'Blu & Nero', price: 20 },
+      ],
+      1
+    );
+
+    const [, options] = fetchMock.mock.calls[0];
+    const body = options.body as string;
+    expect(body).toContain('<Name>Colore &amp; Taglia</Name>');
+    expect(body).toContain('<Value>Rosso &lt;XL&gt;</Value>');
+    expect(body).toContain('<Value>Blu &amp; Nero</Value>');
+  });
+
+  it('lancia un errore se la richiesta HTTP fallisce', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    await expect(
+      reviseWithVariations('access-token', 'ITEM1', 'Lampadina', [
+        { value: 'A', price: 10 },
+        { value: 'B', price: 20 },
+      ], 1)
+    ).rejects.toThrow('ReviseFixedPriceItem fallita (status 500)');
+  });
+
+  it('lancia un errore se eBay risponde con Ack Failure e un solo messaggio', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ReviseFixedPriceItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Failure</Ack>
+  <Errors><LongMessage>Impossibile creare le varianti</LongMessage></Errors>
+</ReviseFixedPriceItemResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    await expect(
+      reviseWithVariations('access-token', 'ITEM1', 'Lampadina', [
+        { value: 'A', price: 10 },
+        { value: 'B', price: 20 },
+      ], 1)
+    ).rejects.toThrow('ReviseFixedPriceItem ha restituito un errore: Impossibile creare le varianti');
+  });
+
+  it('lancia un errore concatenando più messaggi quando Errors è un array', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ReviseFixedPriceItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Failure</Ack>
+  <Errors><LongMessage>Prezzo non valido</LongMessage></Errors>
+  <Errors><LongMessage>SKU duplicato</LongMessage></Errors>
+</ReviseFixedPriceItemResponse>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+
+    await expect(
+      reviseWithVariations('access-token', 'ITEM1', 'Lampadina', [
+        { value: 'A', price: 10 },
+        { value: 'B', price: 20 },
+      ], 1)
+    ).rejects.toThrow('ReviseFixedPriceItem ha restituito un errore: Prezzo non valido | SKU duplicato');
   });
 });

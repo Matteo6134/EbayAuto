@@ -12,6 +12,7 @@ import { handleAnalyze } from './commands/analyze';
 import { handleSetTitle } from './commands/settitle';
 import { handleSetCategory } from './commands/setcategory';
 import { handleSetSpecifics } from './commands/setspecifics';
+import { handleSetVariants } from './commands/setvariants';
 
 const HELP_TEXT = `Comandi disponibili:
 /addproduct <link o ID eBay> - inizia a monitorare un prodotto
@@ -27,6 +28,7 @@ const HELP_TEXT = `Comandi disponibili:
 /settitle <id> <nuovo titolo> - modifica il titolo di un'inserzione
 /setcategory <id> <categoryId eBay> - modifica la categoria di un'inserzione
 /setspecifics <id> Nome=Valore; Nome=Valore - modifica le specifiche di un'inserzione
+/setvariants <id> <Opzione>; <Valore>=<prezzo>; ... - converte l'inserzione in varianti
 /help - questo messaggio`;
 
 const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> = {
@@ -44,6 +46,7 @@ const COMMANDS: Record<string, (ctx: CommandContext) => Promise<CommandResult>> 
   '/settitle': handleSetTitle,
   '/setcategory': handleSetCategory,
   '/setspecifics': handleSetSpecifics,
+  '/setvariants': handleSetVariants,
   '/help': async () => ({ text: HELP_TEXT }),
 };
 
